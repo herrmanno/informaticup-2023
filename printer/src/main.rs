@@ -1,16 +1,9 @@
 mod cli;
 
-use std::collections::HashMap;
-
 use clap::Parser;
 use cli::Args;
 
-use model::{
-    cli::CliFile,
-    object::{Object, ObjectCell},
-    solution::Solution,
-    task::Task,
-};
+use model::{cli::CliFile, map::Map, object::Object, solution::Solution, task::Task};
 
 fn main() {
     let args = Args::parse();
@@ -30,35 +23,11 @@ fn main() {
         (task, solution)
     };
 
-    // println!("Task:");
-    // println!("{:#?}", task);
-    // println!("Solution:");
-    // println!("{:#?}", solution);
+    let mut objects = Vec::with_capacity(task.objects.len() + solution.0.len());
+    objects.extend(task.objects.into_iter().map(Object::from));
+    objects.extend(solution.0.into_iter().map(Object::from));
 
-    let mut map = HashMap::new();
-    let width = task.width;
-    let height = task.height;
+    let map = Map::new(objects);
 
-    for task_object in task.objects.into_iter().map(Object::from) {
-        task_object.place_on_map(&mut map);
-    }
-
-    print_map(width, height, &map);
-
-    for solution_object in solution.0.into_iter().map(Object::from) {
-        solution_object.place_on_map(&mut map);
-    }
-
-    print_map(width, height, &map);
-}
-
-fn print_map(width: u32, height: u32, map: &HashMap<(u32, u32), ObjectCell>) {
-    for y in 0..height {
-        for x in 0..width {
-            let c = map.get(&(x, y)).map(|cell| cell.into()).unwrap_or('.');
-            print!("{}", c);
-        }
-        println!();
-    }
-    println!();
+    println!("{}", map);
 }

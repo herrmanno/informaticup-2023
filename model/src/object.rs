@@ -39,6 +39,30 @@ pub enum Object {
     },
 }
 
+impl Object {
+    pub fn coords(&self) -> (u32, u32) {
+        match self {
+            Object::Obstacle { x, y, .. } => (*x, *y),
+            Object::Deposit { x, y, .. } => (*x, *y),
+            Object::Mine { x, y, .. } => (*x, *y),
+            Object::Factory { x, y, .. } => (*x, *y),
+            Object::Conveyor { x, y, .. } => (*x, *y),
+            Object::Combiner { x, y, .. } => (*x, *y),
+        }
+    }
+
+    pub fn subtype(&self) -> Option<u8> {
+        match self {
+            Object::Obstacle { .. } => None,
+            Object::Deposit { subtype, .. } => Some(*subtype),
+            Object::Mine { subtype, .. } => Some(*subtype),
+            Object::Factory { subtype, .. } => Some(*subtype),
+            Object::Conveyor { subtype, .. } => Some(*subtype),
+            Object::Combiner { subtype, .. } => Some(*subtype),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ObjectType {
     Obstacle,
@@ -51,10 +75,12 @@ pub enum ObjectType {
 
 #[derive(Debug, Clone)]
 pub enum ObjectCell {
-    // TODO: link cell with specific object by giving it a type ('factory', 'deposit') and
-    //       an index into a list of objects of such type
-    Exgress,
-    Ingress,
+    Exgress {
+        index: usize,
+    },
+    Ingress {
+        index: usize,
+    },
     Inner {
         kind: ObjectType,
         subtype: Option<u8>,
@@ -64,8 +90,8 @@ pub enum ObjectCell {
 impl From<&ObjectCell> for char {
     fn from(cell: &ObjectCell) -> char {
         match cell {
-            ObjectCell::Exgress => '-',
-            ObjectCell::Ingress => '+',
+            ObjectCell::Exgress { .. } => '-',
+            ObjectCell::Ingress { .. } => '+',
             ObjectCell::Inner {
                 kind: ObjectType::Obstacle,
                 ..
@@ -84,8 +110,8 @@ impl From<&ObjectCell> for char {
 }
 
 impl Object {
-    pub fn place_on_map(&self, map: &mut HashMap<(u32, u32), ObjectCell>) {
-        for ((x, y), cell) in self.get_cells() {
+    pub fn place_on_map(&self, index: usize, map: &mut HashMap<(u32, u32), ObjectCell>) {
+        for ((x, y), cell) in self.get_cells(index) {
             if let Some(old_cell) = map.insert((x, y), cell.clone()) {
                 match (old_cell.clone(), cell.clone()) {
                     (
@@ -110,7 +136,7 @@ impl Object {
     }
 
     /// Calculates the fields occupied by this object
-    fn get_cells(&self) -> Vec<((u32, u32), ObjectCell)> {
+    pub fn get_cells(&self, index: usize) -> Vec<((u32, u32), ObjectCell)> {
         use Object::*;
         use ObjectCell::*;
 
@@ -146,7 +172,7 @@ impl Object {
                 for px in x..(x + width) {
                     for py in y..(y + height) {
                         if px == x || px == (x + width - 1) || py == y || py == (y + width - 1) {
-                            cells.push(((px, py), Exgress));
+                            cells.push(((px, py), Exgress { index }));
                         } else {
                             cells.push((
                                 (px, py),
@@ -165,7 +191,7 @@ impl Object {
                 for px in x..(x + 5) {
                     for py in y..(y + 5) {
                         if px == x || px == (x + 4) || py == y || py == (y + 4) {
-                            cells.push(((px, py), Ingress));
+                            cells.push(((px, py), Ingress { index }));
                         } else {
                             cells.push((
                                 (px, py),
@@ -210,8 +236,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x - 1, y + 1), Ingress),
-                        ((x + 2, y + 1), Exgress),
+                        ((x - 1, y + 1), Ingress { index }),
+                        ((x + 2, y + 1), Exgress { index }),
                     ]
                 } else if subtype == 1 {
                     vec![
@@ -243,8 +269,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x, y + 2), Ingress),
-                        ((x, y - 1), Exgress),
+                        ((x, y + 2), Ingress { index }),
+                        ((x, y - 1), Exgress { index }),
                     ]
                 } else if subtype == 2 {
                     vec![
@@ -276,8 +302,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x - 1, y), Exgress),
-                        ((x + 2, y), Ingress),
+                        ((x - 1, y), Exgress { index }),
+                        ((x + 2, y), Ingress { index }),
                     ]
                 } else if subtype == 3 {
                     vec![
@@ -309,8 +335,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x + 1, y - 1), Exgress),
-                        ((x + 1, y + 2), Ingress),
+                        ((x + 1, y - 1), Exgress { index }),
+                        ((x + 1, y + 2), Ingress { index }),
                     ]
                 } else {
                     panic!("Invalid mine subtype: {}", subtype);
@@ -325,9 +351,9 @@ impl Object {
                             subtype: Some(subtype),
                         },
                     ), // root cell
-                    ((-1, -1), Ingress),
-                    ((-1, 0), Ingress),
-                    ((-1, 1), Ingress),
+                    ((-1, -1), Ingress { index }),
+                    ((-1, 0), Ingress { index }),
+                    ((-1, 1), Ingress { index }),
                     (
                         (0, -1),
                         Inner {
@@ -342,7 +368,7 @@ impl Object {
                             subtype: Some(subtype),
                         },
                     ),
-                    ((1, 0), Exgress),
+                    ((1, 0), Exgress { index }),
                 ];
 
                 for _ in 0..subtype {
@@ -370,8 +396,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x - 1, y), Ingress),
-                        ((x + 1, y), Exgress),
+                        ((x - 1, y), Ingress { index }),
+                        ((x + 1, y), Exgress { index }),
                     ]
                 } else if subtype == 1 {
                     vec![
@@ -382,8 +408,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x, y - 1), Ingress),
-                        ((x, y + 1), Exgress),
+                        ((x, y - 1), Ingress { index }),
+                        ((x, y + 1), Exgress { index }),
                     ]
                 } else if subtype == 2 {
                     vec![
@@ -394,8 +420,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x - 1, y), Exgress),
-                        ((x + 1, y), Ingress),
+                        ((x - 1, y), Exgress { index }),
+                        ((x + 1, y), Ingress { index }),
                     ]
                 } else if subtype == 3 {
                     vec![
@@ -406,8 +432,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x, y - 1), Exgress),
-                        ((x, y + 1), Ingress),
+                        ((x, y - 1), Exgress { index }),
+                        ((x, y + 1), Ingress { index }),
                     ]
                 } else if subtype == 4 {
                     vec![
@@ -425,8 +451,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x - 1, y), Ingress),
-                        ((x + 2, y), Exgress),
+                        ((x - 1, y), Ingress { index }),
+                        ((x + 2, y), Exgress { index }),
                     ]
                 } else if subtype == 5 {
                     vec![
@@ -444,8 +470,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x, y - 1), Ingress),
-                        ((x, y + 2), Exgress),
+                        ((x, y - 1), Ingress { index }),
+                        ((x, y + 2), Exgress { index }),
                     ]
                 } else if subtype == 6 {
                     vec![
@@ -463,8 +489,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x - 1, y), Exgress),
-                        ((x + 2, y), Ingress),
+                        ((x - 1, y), Exgress { index }),
+                        ((x + 2, y), Ingress { index }),
                     ]
                 } else if subtype == 7 {
                     vec![
@@ -482,8 +508,8 @@ impl Object {
                                 subtype: Some(subtype),
                             },
                         ),
-                        ((x, y - 1), Exgress),
-                        ((x, y + 2), Ingress),
+                        ((x, y - 1), Exgress { index }),
+                        ((x, y + 2), Ingress { index }),
                     ]
                 } else {
                     panic!("Invalid conveyor subtype: {}", subtype);
