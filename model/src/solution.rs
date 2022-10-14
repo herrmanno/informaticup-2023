@@ -1,8 +1,8 @@
-use serde::{Deserialize};
+use serde::Deserialize;
 use serde_json;
 
 #[derive(Deserialize, Default, Debug, Clone)]
-pub struct Solution (pub Vec<Object>);
+pub struct Solution(pub Vec<Object>);
 
 impl Solution {
     pub fn from_json_file(path: &str) -> Result<Self, impl std::error::Error> {

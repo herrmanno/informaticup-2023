@@ -5,7 +5,12 @@ use std::collections::HashMap;
 use clap::Parser;
 use cli::Args;
 
-use model::{task::Task, solution::Solution, object::{Object, ObjectCell}, cli::CliFile};
+use model::{
+    cli::CliFile,
+    object::{Object, ObjectCell},
+    solution::Solution,
+    task::Task,
+};
 
 fn main() {
     let args = Args::parse();

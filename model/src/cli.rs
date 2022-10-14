@@ -1,7 +1,7 @@
-use serde::{Deserialize};
+use serde::Deserialize;
 use serde_json;
 
-use crate::{task::Task, solution::Solution};
+use crate::{solution::Solution, task::Task};
 
 #[derive(Deserialize, Debug)]
 pub struct CliFile(Vec<CliFileEntry>);
@@ -12,20 +12,16 @@ impl CliFile {
         let CliFile(entries) = serde_json::from_str(&s)?;
         let task = entries
             .iter()
-            .find_map(|e| {
-                match e {
-                    CliFileEntry::TaskEntry(task) => Some(task),
-                    _ => None
-                }
+            .find_map(|e| match e {
+                CliFileEntry::TaskEntry(task) => Some(task),
+                _ => None,
             })
             .expect("No task found in cli file");
         let solution = entries
             .iter()
-            .find_map(|e| {
-                match e {
-                    CliFileEntry::SolutionEntry(solution) => Some(solution),
-                    _ => None
-                }
+            .find_map(|e| match e {
+                CliFileEntry::SolutionEntry(solution) => Some(solution),
+                _ => None,
             })
             .expect("No task found in cli file");
 
