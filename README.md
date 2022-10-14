@@ -12,7 +12,7 @@ Binary to read task and solution files and print resulting map
 cargo run -p printer -- --cli inputs/custom001.cli.json
 ```
 
-### [Simulation](./simulation/)
+### [Simulator](./simulator/)
 Binary for running a simulation from a task/solution file
 
 #### Example
