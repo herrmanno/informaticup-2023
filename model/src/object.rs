@@ -171,7 +171,7 @@ impl Object {
                 let mut cells = Vec::with_capacity(25);
                 for px in x..(x + width) {
                     for py in y..(y + height) {
-                        if px == x || px == (x + width - 1) || py == y || py == (y + width - 1) {
+                        if px == x || px == (x + width - 1) || py == y || py == (y + height - 1) {
                             cells.push(((px, py), Exgress { index }));
                         } else {
                             cells.push((
@@ -543,7 +543,6 @@ impl From<task::Object> for Object {
                 height,
                 subtype: subtype.unwrap(),
             },
-            // TODO: prepare for tasks with other object types already set!
             _ => panic!(
                 "Cannot convert task object w/ type '{}' into proper object",
                 kind

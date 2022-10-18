@@ -69,8 +69,8 @@ impl Display for Map {
 
         let width = self.map.keys().map(|coord| coord.0).max().unwrap();
         let height = self.map.keys().map(|coord| coord.1).max().unwrap();
-        for y in 0..height {
-            for x in 0..width {
+        for y in 0..=height {
+            for x in 0..=width {
                 let c = self.map.get(&(x, y)).map(|cell| cell.into()).unwrap_or('.');
                 f.write_fmt(format_args!("{}", c))?;
             }
