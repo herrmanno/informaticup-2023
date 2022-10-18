@@ -17,8 +17,8 @@ pub struct Object {
     #[serde(rename = "type")]
     pub kind: String,
     pub subtype: u8,
-    pub x: u32,
-    pub y: u32,
+    pub x: i32,
+    pub y: i32,
     pub width: Option<u32>,
     pub height: Option<u32>,
 }

@@ -25,6 +25,24 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Debug executable 'solver'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=solver",
+                    "--package=solver"
+                ],
+                "filter": {
+                    "name": "solver",
+                    "kind": "bin"
+                }
+            },
+            "args": ["--task", "inputs/001.task.json"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Debug unit tests in executable 'printer'",
             "cargo": {
                 "args": [

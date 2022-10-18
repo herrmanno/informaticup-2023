@@ -1,13 +1,13 @@
-mod cli;
-
 use clap::Parser;
 use cli::Args;
-
 use model::{cli::CliFile, map::Map, object::Object, solution::Solution, task::Task};
+use solver::solve;
+
+mod cli;
 
 fn main() {
     let args = Args::parse();
-    let (task, solution) = if let Some(cli_path) = args.cli {
+    let (task, _) = if let Some(cli_path) = args.cli {
         CliFile::from_json_file(&cli_path).expect("Could not read cli file")
     } else {
         let task = if let Some(task_path) = args.task {
@@ -23,11 +23,11 @@ fn main() {
         (task, solution)
     };
 
-    let mut objects = Vec::with_capacity(task.objects.len() + solution.0.len());
-    objects.extend(task.objects.into_iter().map(Object::from));
-    objects.extend(solution.0.into_iter().map(Object::from));
+    let mut map = Map::new(
+        task.width,
+        task.height,
+        task.objects.iter().cloned().map(Object::from).collect(),
+    );
 
-    let map = Map::new(task.width, task.height, objects);
-
-    println!("{}", map);
+    solve(&task, &mut map);
 }

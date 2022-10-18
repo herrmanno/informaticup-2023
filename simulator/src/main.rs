@@ -7,6 +7,7 @@ use cli::Args;
 
 use model::{
     cli::CliFile,
+    coord::neighbours,
     map::{Map, MapObject},
     object::{Object, ObjectCell},
     solution::Solution,
@@ -41,7 +42,7 @@ fn generate_map(task: &Task, solution: &Solution) -> Map {
     objects.extend(task.objects.clone().into_iter().map(Object::from));
     objects.extend(solution.0.iter().cloned().map(Object::from));
 
-    Map::new(objects)
+    Map::new(task.width, task.height, objects)
 }
 
 /// Runs a simulation of a task and a given solution map
@@ -91,6 +92,7 @@ fn simulate(task: &Task, map: &mut Map) -> u32 {
                 for (nx, ny) in neighbours(*x, *y) {
                     if let Some(ObjectCell::Exgress {
                         index: index_incoming,
+                        ..
                     }) = map.get_cell(nx, ny)
                     {
                         // move resources
@@ -144,6 +146,7 @@ fn simulate(task: &Task, map: &mut Map) -> u32 {
                 for (nx, ny) in neighbours(*x, *y) {
                     if let Some(ObjectCell::Ingress {
                         index: index_receiving,
+                        ..
                     }) = map.get_cell(nx, ny)
                     {
                         let receiving_object = &objects[*index_receiving];
@@ -225,18 +228,6 @@ fn pretty_format_resources(resources: &[u32]) -> String {
         .map(|(index, value)| format!("{}:{}", index, value))
         .reduce(|a, b| format!("{}, {}", a, b))
         .unwrap_or_else(|| "".to_string())
-}
-
-fn neighbours(x: u32, y: u32) -> Vec<(u32, u32)> {
-    if x > 0 && y > 0 {
-        vec![(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
-    } else if x > 0 {
-        vec![(x - 1, y), (x + 1, y), (x, y + 1)]
-    } else if y > 0 {
-        vec![(x + 1, y), (x, y - 1), (x, y + 1)]
-    } else {
-        vec![(x + 1, y), (x, y + 1)]
-    }
 }
 
 #[cfg(test)]
