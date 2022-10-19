@@ -1,4 +1,9 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+mod path;
+
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    rc::Rc,
+};
 
 use model::{
     coord::{neighbours, Coord},
@@ -6,6 +11,8 @@ use model::{
     object::{Object, ObjectCell, ObjectType},
     task::Task,
 };
+
+use path::Path;
 
 pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
     // prepare helper state that is useful for remaining algorithm
@@ -140,10 +147,16 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                 factory.object.coords(),
                 resource_index
             );
-            if let Some((_path, new_map)) =
+            if let Some(path) =
                 build_shortest_path_from_factory_to_deposit(&factory, resource_index, &map)
             {
-                map = new_map;
+                // TODO: store additional ingresses of path for next path finding from same factory
+                for object in Into::<Vec<Object>>::into(path) {
+                    // TODO: may insert unchecked, because we already know all parts are legal
+                    if let Err(e) = map.insert_object(object) {
+                        unreachable!("Error while inserting path object onto map: '{}'", e)
+                    }
+                }
                 println!("{}", map);
             } else {
                 println!(
@@ -230,107 +243,90 @@ fn find_possible_factory_positions(map: &Map) -> Vec<Coord> {
     positions
 }
 
-/// Vector of object indices
-type Path = Vec<usize>;
-
 /// Constructs the shortest path from a factory to a deposit of subtype `resource_index`
 fn build_shortest_path_from_factory_to_deposit(
     factory: &MapObject,
     resource_index: usize,
     map: &Map,
-) -> Option<(Path, Map)> {
-    /// (distance, path, current position, map) TODO: optimize: don't clone list for each state
-    type SearchState = (u32, Vec<usize>, Coord, Map);
-    let mut queue: VecDeque<SearchState> = VecDeque::new();
+) -> Option<Path> {
+    let mut queue: VecDeque<Rc<Path>> = VecDeque::new();
 
-    // TODO: add all ingresses from already connected components to the start points
-    for start_point in factory.ingresses.iter() {
-        queue.push_back((0, vec![], *start_point, map.clone()))
-    }
+    let path = Path::from_starting_points(factory.ingresses.clone());
+    queue.push_front(Rc::new(path));
 
     let mut visited = HashSet::new();
 
     // TODO: sort queue by current distance to possible target
-    while let Some((distance, path, (x, y), map)) = queue.pop_front() {
-        if visited.contains(&(x, y)) {
-            continue;
-        }
+    while let Some(path) = queue.pop_front() {
+        for (x, y) in path.heads() {
+            if visited.contains(&(x, y)) {
+                continue;
+            }
 
-        visited.insert((x, y));
+            visited.insert((x, y));
 
-        /*  LOGIC
-           1. try if target is reached if a mine is placed
-           2. try using long conveyor
-           3. try using short conveyor
-           4. try using combiner
-        */
+            /*  LOGIC
+            1. try if target is reached if a mine is placed
+            2. try using long conveyor
+            3. try using short conveyor
+            4. try using combiner
+            */
 
-        let free_neighbours = neighbours(x, y)
-            .into_iter()
-            .filter(|(x, y)| map.get_cell(*x, *y).is_none());
+            let free_neighbours = neighbours(x, y)
+                .into_iter()
+                .filter(|(x, y)| map.get_cell(*x, *y).is_none());
 
-        for (nx, ny) in free_neighbours {
-            for mine_subtype in 0..=3 {
-                let mine = Object::mine_with_subtype_and_exgress_at(mine_subtype, (nx, ny));
-                let mine_ingress = mine.ingress().unwrap();
-                let mine_reaches_deposit = neighbours(mine_ingress.0, mine_ingress.1)
-                    .into_iter()
-                    .any(|(x, y)| match map.get_cell(x, y) {
-                        Some(ObjectCell::Exgress { index, .. }) => {
-                            let obj = &map.get_objects()[*index];
-                            obj.object.kind() == ObjectType::Deposit
-                                && obj.object.subtype() == Some(resource_index as u8)
+            for (nx, ny) in free_neighbours {
+                for mine_subtype in 0..=3 {
+                    let mine = Object::mine_with_subtype_and_exgress_at(mine_subtype, (nx, ny));
+                    let mine_ingress = mine.ingress().unwrap();
+                    let mine_reaches_deposit = neighbours(mine_ingress.0, mine_ingress.1)
+                        .into_iter()
+                        .any(|(x, y)| match map.get_cell(x, y) {
+                            Some(ObjectCell::Exgress { index, .. }) => {
+                                let obj = &map.get_objects()[*index];
+                                obj.object.kind() == ObjectType::Deposit
+                                    && obj.object.subtype() == Some(resource_index as u8)
+                            }
+                            _ => false,
+                        });
+
+                    if mine_reaches_deposit {
+                        match map
+                            .can_insert_object(&mine)
+                            .and_then(|_| Path::append(mine, &path))
+                        {
+                            Ok(path) => {
+                                // return Some((&path).into());
+                                return Some(path);
+                            }
+                            Err(_e) => {}
                         }
-                        _ => false,
-                    });
+                    }
+                }
 
-                if mine_reaches_deposit {
-                    let mut map = map.clone();
-                    match map.insert_object(mine) {
-                        Ok(mine_object_index) => {
-                            let mut path = path;
-                            path.push(mine_object_index);
-                            return Some((path, map));
-                        }
+                for conveyor_subtype in (0..=7).rev() {
+                    let conveyor =
+                        Object::conveyor_with_subtype_and_exgress_at(conveyor_subtype, (nx, ny));
+                    match map
+                        .can_insert_object(&conveyor)
+                        .and_then(|_| Path::append(conveyor, &path))
+                    {
+                        Ok(path) => queue.push_back(Rc::new(path)),
                         Err(_e) => {}
                     }
                 }
-            }
 
-            for conveyor_subtype in (0..=7).rev() {
-                let conveyor =
-                    Object::conveyor_with_subtype_and_exgress_at(conveyor_subtype, (nx, ny));
-                let mut map = map.clone();
-                let conveyor_ingress = conveyor.ingress().unwrap();
-                match map.insert_object(conveyor) {
-                    Ok(conveyor_object_index) => {
-                        let mut path = path.clone();
-                        path.push(conveyor_object_index);
-                        queue.push_back((distance + 1, path, conveyor_ingress, map))
+                for combiner_subtype in (0..=3).rev() {
+                    let combiner =
+                        Object::combiner_with_subtype_and_exgress_at(combiner_subtype, (nx, ny));
+                    match map
+                        .can_insert_object(&combiner)
+                        .and_then(|_| Path::append(combiner, &path))
+                    {
+                        Ok(path) => queue.push_back(Rc::new(path)),
+                        Err(_e) => {}
                     }
-                    Err(_e) => {}
-                }
-            }
-
-            for combiner_subtype in (0..=3).rev() {
-                let combiner =
-                    Object::combiner_with_subtype_and_exgress_at(combiner_subtype, (nx, ny));
-                let mut map = map.clone();
-                let combiner_ingresses = combiner.ingresses();
-                match map.insert_object(combiner) {
-                    Ok(conveyor_object_index) => {
-                        let mut path = path.clone();
-                        path.push(conveyor_object_index);
-                        for combiner_ingress in combiner_ingresses {
-                            queue.push_back((
-                                distance + 1,
-                                path.clone(),
-                                combiner_ingress,
-                                map.clone(),
-                            ))
-                        }
-                    }
-                    Err(_e) => {}
                 }
             }
         }
@@ -338,62 +334,3 @@ fn build_shortest_path_from_factory_to_deposit(
 
     None
 }
-
-// fn create_shortest_path_to_deposits(map: &Map, deposit_subtypes: impl Iterator<Item = u8>) -> HashMap<u8, HashMap<Coord, u32>> {
-//     let mut distances = HashMap::new();
-//     for deposit_subtype in deposit_subtypes {
-//         distances.insert(deposit_subtype, create_shortest_path_to_deposit(map, deposit_subtype));
-//     }
-
-//     distances
-// }
-
-// fn create_shortest_path_to_deposit(map: &Map, deposit_subtype: u8) -> HashMap<(u32,u32), u32> {
-//     fn shortest_path(coord: Coord, deposit_subtype: u8, distances: &mut HashMap<Coord, u32>, map: &Map) -> u32 {
-//         println!("Checking shortest path from {:?} to deposit {}", coord, deposit_subtype);
-
-//         let (x,y) = coord;
-//         let neighbours = neighbours(x, y);
-
-//         if neighbours.iter().any(|(x,y)| match map.get_cell(*x, *y) {
-//             Some(ObjectCell::Exgress { index }) => {
-//                 let obj = &map.get_objects()[*index].object;
-//                 obj.kind() == ObjectType::Deposit && Some(deposit_subtype) == obj.subtype()
-//             },
-//             _ => false
-//         }) {
-//             distances.insert(coord, 0);
-//             0
-//         } else {
-//             let distance = neighbours.iter()
-//                 .map(|(x,y)| {
-//                     shortest_path((*x,*y), deposit_subtype, distances, map)
-//                 })
-//                 .min()
-//                 .unwrap_or(u32::MAX);
-
-//             distances.insert(coord, distance);
-
-//             distance
-//         }
-//     }
-
-//     let free_cells = {
-//         let mut v = vec![];
-//         for y in 0..map.height() {
-//             for x in 0..map.width() {
-//                 if map.get_cell(x, y).is_none() {
-//                     v.push((x, y));
-//                 }
-//             }
-//         }
-//         v
-//     };
-
-//     let mut distances = HashMap::new();
-//     for coord in free_cells {
-//         shortest_path(coord, deposit_subtype, &mut distances, map);
-//     }
-
-//     distances
-// }

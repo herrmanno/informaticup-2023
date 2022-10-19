@@ -79,10 +79,25 @@ impl Map {
     }
 
     pub fn insert_object(&mut self, object: Object) -> Result<usize, String> {
+        let index = self.objects.len();
+        self.can_insert_object(&object)?;
+
+        let cells = object.get_cells(index);
+        for ((x, y), cell) in cells {
+            self.map.insert((x, y), cell);
+        }
+
+        self.objects.push(MapObject::from((index, object)));
+
+        Ok(index)
+    }
+
+    pub fn can_insert_object(&self, object: &Object) -> Result<(), String> {
         let width = self.width();
         let height = self.height();
         let index = self.objects.len();
 
+        // check that no part of object is outside map or placed over another building
         let cells = object.get_cells(index);
         for ((x, y), cell) in cells.iter() {
             if *x < 0 || *y < 0 || *x >= width || *y >= height {
@@ -184,13 +199,7 @@ impl Map {
             }
         }
 
-        for ((x, y), cell) in cells {
-            self.map.insert((x, y), cell);
-        }
-
-        self.objects.push(MapObject::from((index, object)));
-
-        Ok(index)
+        Ok(())
     }
 }
 
