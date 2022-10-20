@@ -52,8 +52,11 @@ impl Map {
         self.height as u8
     }
 
-    pub fn insert_object(&mut self, object: Object) -> Result<usize, String> {
-        // FIXME: allow placing the *same* (by type, position, etc.) object above it self
+    pub fn insert_object(&mut self, object: Object) -> Result<(), String> {
+        if self.objects.contains_key(&object.id()) {
+            return Ok(());
+        }
+
         let index = self.objects.len();
         self.can_insert_object(&object)?;
 
@@ -64,17 +67,14 @@ impl Map {
 
         self.objects.insert(object.id(), object);
 
-        Ok(index)
+        Ok(())
     }
 
-    pub fn try_insert_objects(&mut self, objects: Vec<Object>) -> Result<Vec<usize>, String> {
-        let mut indices = Vec::with_capacity(objects.capacity());
-
+    pub fn try_insert_objects(&mut self, objects: Vec<Object>) -> Result<(), String> {
         let mut inserted = 0;
         for object in objects.iter() {
             match self.insert_object(object.clone()) {
-                Ok(index) => {
-                    indices.push(index);
+                Ok(_) => {
                     inserted += 1;
                 }
                 Err(e) => {
@@ -86,14 +86,16 @@ impl Map {
             }
         }
 
-        Ok(indices)
+        Ok(())
     }
 
     pub fn remove_object(&mut self, object: &Object) -> Result<(), String> {
-        // FIXME: cannot remove object from `self.objects`, because the position of remaining
-        // object in that vector is crucial.
-        // Should switch to storing objects in HashMap<ObjectID,Object> or in
-        // HashSet<ObjectID>
+        if self.objects.remove(&object.id()).is_none() {
+            return Err(String::from(
+                "Cannot remove object. Map does not contain such object.",
+            ));
+        }
+
         for (point, _) in object.get_cells(0) {
             self.map.remove(&point);
         }
@@ -102,6 +104,10 @@ impl Map {
     }
 
     pub fn can_insert_object(&self, object: &Object) -> Result<(), String> {
+        if self.objects.contains_key(&object.id()) {
+            return Ok(());
+        }
+
         let width = self.width();
         let height = self.height();
         let index = self.objects.len();
@@ -445,6 +451,53 @@ mod tests {
                 let result = map.insert_object(Object::Combiner { x, y, subtype });
                 assert!(result.is_err());
             }
+        }
+    }
+
+    #[test]
+    fn piece_can_be_placed_over_itself() {
+        let map = Map::new(10, 10, vec![]);
+        let objects = vec![
+            Object::Obstacle {
+                x: 3,
+                y: 3,
+                width: 3,
+                height: 3,
+            },
+            Object::Deposit {
+                x: 3,
+                y: 3,
+                width: 3,
+                height: 3,
+                subtype: 0,
+            },
+            Object::Factory {
+                x: 3,
+                y: 3,
+                subtype: 0,
+            },
+            Object::Mine {
+                x: 3,
+                y: 3,
+                subtype: 0,
+            },
+            Object::Conveyor {
+                x: 3,
+                y: 3,
+                subtype: 0,
+            },
+            Object::Combiner {
+                x: 3,
+                y: 3,
+                subtype: 0,
+            },
+        ];
+
+        for object in objects {
+            let mut map = map.clone();
+            map.insert_object(object.clone()).unwrap();
+            let result = map.insert_object(object);
+            assert!(result.is_ok());
         }
     }
 

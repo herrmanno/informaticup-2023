@@ -9,17 +9,26 @@ use model::{
     coord::{neighbours, Point},
     map::Map,
     object::{Coord, Object, ObjectCell, ObjectType, Subtype},
-    task::Task,
+    task::{Product, Task},
 };
 
-use path::Path;
+use path::{Path, PathID};
 use rand::{
     distributions::WeightedIndex, prelude::Distribution, seq::SliceRandom, thread_rng, Rng,
 };
 use simulator::{simulate, SimulatorResult};
 
+/// Number of whole iterations
 const NUM_ITERATIONS: u32 = 500;
-const NUM_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 500;
+
+/// Number of times a factory location is tried.
+/// If no location can be found a whole new iteration starts
+const NUM_MAX_FACTORY_PLACEMENTS: u32 = 100;
+
+/// Number of pre-calculated paths per factory (position) and resource type
+const NUM_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 100;
+
+/// Number of path combinations to try during one iteration
 const NUM_PATH_COMBINING_ITERATIONS: u32 = 1000;
 
 pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
@@ -63,7 +72,7 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
     let possible_factory_locations = find_possible_factory_positions(original_map);
     // let mut available_factory_locations = possible_factory_locations;
 
-    let best_factory_positions_by_factory_subtype: HashMap<
+    let mut best_factory_positions_by_factory_subtype: HashMap<
         Subtype,
         (WeightedIndex<f32>, Vec<Point>),
     > = task
@@ -77,6 +86,8 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
             (factory_type, (probabilities, best_positions))
         })
         .collect();
+
+    let mut products: Vec<Product> = task.products.to_vec();
 
     println!("{}", original_map);
 
@@ -116,19 +127,22 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
     let mut best_solution: Option<(SimulatorResult, Map)> = None;
 
-    for _ in 0..NUM_ITERATIONS {
+    'iterate: for _ in 0..NUM_ITERATIONS {
         let mut map = original_map.clone();
 
         // place factories
 
         let mut factory_ids = Vec::new();
 
-        for product in task.products.iter() {
+        // Shuffle products to place factories in different order/priority each iteration
+        products.shuffle(&mut rng);
+
+        'factory_placement: for product in products.iter() {
             let factory_type = product.subtype;
             let (factory_location_distribution, factory_locations) =
                 &best_factory_positions_by_factory_subtype[&factory_type];
 
-            'factory_placement: loop {
+            for _ in 0..NUM_MAX_FACTORY_PLACEMENTS {
                 let factory_location =
                     factory_locations[factory_location_distribution.sample(&mut rng)];
 
@@ -141,20 +155,14 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                 };
                 let factory_id = factory.id();
 
-                match map.insert_object(factory) {
-                    Ok(_) => {
-                        // TODO: update factory_positions weights, so that conflicting positions
-                        // can not be picked anymore
-                        factory_ids.push(factory_id);
-                        break 'factory_placement;
-                    }
-                    Err(_) => {
-                        // this factory cannot be placed here because another factory blocks its place.
-                        // try to choose another location for this factory
-                        continue;
-                    }
+                if map.insert_object(factory).is_ok() {
+                    // TODO: update factory_positions weights, so that conflicting positions can not be picked anymore
+                    factory_ids.push(factory_id);
+                    continue 'factory_placement;
                 }
             }
+
+            continue 'iterate;
         }
 
         // construct factory -> deposit paths
@@ -191,8 +199,35 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                     &mut rng,
                 );
 
-                paths_from_factory_to_resource
-                    .insert((subtype, resource_index as Subtype), shortest_paths);
+                if !shortest_paths.is_empty() {
+                    paths_from_factory_to_resource
+                        .insert((subtype, resource_index as Subtype), shortest_paths);
+                } else {
+                    // No path from factory to resource could be found -> forbid factory position
+
+                    let current_factory_position = factory.coords();
+                    let factory_positions = best_factory_positions_by_factory_subtype
+                        .get_mut(&subtype)
+                        .unwrap();
+                    let current_factory_position_index = factory_positions
+                        .1
+                        .iter()
+                        .enumerate()
+                        .find_map(|(index, position)| {
+                            if *position == current_factory_position {
+                                Some(index)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap();
+
+                    factory_positions
+                        .0
+                        .update_weights(&vec![(current_factory_position_index, &0f32)][..])
+                        .unwrap();
+                    continue 'iterate;
+                }
             }
         }
 
@@ -232,9 +267,9 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
             }
 
             break 'combining_paths;
-
-            //TODO: try to build even more paths onto map
         }
+
+        // FIXME: build additional path in descending product priority
 
         let map_score = simulate(task, &map, true);
 
@@ -250,22 +285,7 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
             Some((map_score, map))
         };
     }
-    /*
-       STEPS
-       1. for every product, that has deposits on board (in descending order by possability to produce goods)
-           1. try to find a place for its factory, from
-              where a path between the factory and the
-              deposits exist
-       2. for every factory
-           for every deposit of factories product
-               try to find the shortest valid path from factory [1] to deposit
-               [1] from all factory ingresses and open ends of combiners already connected to the factory
-           if there exist no path:
-               then:
-                   if this factory is already connected to another deposit:
-                       remove that path (and forbid it) and take another path to that deposit
-                   else: try to replace the factory
-    */
+
     original_map
 }
 
@@ -374,14 +394,6 @@ fn sort_to_best_positions_by_deposits(
     (weights, positions)
 }
 
-// fn build_shortest_path_from_factory_to_deposit(
-//     factory: &MapObject,
-//     resource_index: usize,
-//     map: &Map,
-// ) -> Option<Path> {
-//     build_shortest_paths_from_factory_to_deposit(0, factory, resource_index, map).first().cloned()
-// }
-
 /// Constructs the shortest path from a factory to a deposit of subtype `resource_index`
 fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
     num_paths: u32,
@@ -392,6 +404,7 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
 ) -> Vec<Path> {
     let mut i = 0;
     let mut paths = Vec::with_capacity(num_paths as usize);
+    let mut paths_so_far: HashSet<PathID> = HashSet::new();
     let mut queue: VecDeque<Rc<Path>> = VecDeque::new();
 
     let mut ingresses = factory.ingresses();
@@ -399,22 +412,14 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
     let path = Path::from_starting_points(ingresses);
     queue.push_front(Rc::new(path));
 
-    let mut visited = HashSet::new();
-
     // TODO: sort queue by current distance to possible target
     'bfs: while let Some(path) = queue.pop_front() {
         for (x, y) in path.heads() {
-            if visited.contains(&(x, y)) {
-                continue;
-            }
-
-            visited.insert((x, y));
-
             /*  LOGIC
-            1. try if target is reached if a mine is placed
-            2. try using long conveyor
-            3. try using short conveyor
-            4. try using combiner
+                1. try if target is reached if a mine is placed
+                2. try using long conveyor
+                3. try using short conveyor
+                4. try using combiner
             */
 
             let free_neighbours = neighbours(x, y)
@@ -422,7 +427,7 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
                 .filter(|(x, y)| map.get_cell(*x, *y).is_none());
 
             for (nx, ny) in free_neighbours {
-                for mine_subtype in 0..=3 {
+                for mine_subtype in 2..=3 {
                     let mine = Object::mine_with_subtype_and_exgress_at(mine_subtype, (nx, ny));
                     let mine_ingress = mine.ingress().unwrap();
                     let mine_reaches_deposit = neighbours(mine_ingress.0, mine_ingress.1)
@@ -441,10 +446,13 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
                             .can_insert_object(&mine)
                             .and_then(|_| Path::append(mine, &path))
                         {
-                            Ok(path) => {
-                                // return Some((&path).into());
-                                paths.push(path);
-                                i += 1;
+                            Ok(new_path) => {
+                                let new_path_id = new_path.id();
+                                if !paths_so_far.contains(&new_path_id) {
+                                    paths_so_far.insert(new_path_id);
+                                    paths.push(new_path);
+                                    i += 1;
+                                }
 
                                 if i == num_paths {
                                     break 'bfs;
@@ -482,5 +490,6 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
         }
     }
 
+    paths.shrink_to_fit();
     paths
 }

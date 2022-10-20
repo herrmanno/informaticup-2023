@@ -5,6 +5,8 @@ use model::{
     object::{Object, ObjectCell, ObjectType},
 };
 
+pub type PathID = u128;
+
 #[derive(Debug, Clone)]
 pub(crate) enum Path {
     End { ingresses: Vec<Point> },
@@ -31,6 +33,24 @@ impl Path {
             }),
             Err(e) => Err(e),
         }
+    }
+
+    /// Calculates a hash-like id for this path, based on its objects
+    pub fn id(&self) -> PathID {
+        let mut a = 0u64;
+        let mut b = 0u64;
+        let mut t = false;
+        for object in self.objects() {
+            if t {
+                a ^= object.id();
+            } else {
+                b ^= object.id();
+            }
+
+            t ^= t;
+        }
+
+        ((a as u128) << 64) | (b as u128)
     }
 
     /// Returns all ingresses of the path's head
