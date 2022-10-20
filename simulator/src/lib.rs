@@ -2,8 +2,8 @@ use std::collections::{HashMap, VecDeque};
 
 use model::{
     coord::neighbours,
-    map::{Map, MapObject},
-    object::{Object, ObjectCell},
+    map::Map,
+    object::{Object, ObjectCell, ObjectID},
     solution::Solution,
     task::{Product, Task},
 };
@@ -50,22 +50,25 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
     let mut score = 0;
 
-    let mut resources: HashMap<usize, u32> = map
+    // Map from deposit to its resources
+    let mut resources: HashMap<ObjectID, u32> = map
         .get_objects()
-        .iter()
-        .enumerate()
-        .filter_map(|(index, obj)| match obj.object {
+        .filter_map(|obj| match obj {
             Object::Deposit { width, height, .. } => {
-                Some((index, width as u32 * height as u32 * 5))
+                Some((obj.id(), *width as u32 * *height as u32 * 5))
             }
             _ => None,
         })
         .collect();
 
-    let mut resource_distribution: Vec<Vec<u32>> =
-        map.get_objects().iter().map(|_| vec![0; 10]).collect();
+    // Map from objectID to amount of resources that object currently holds
+    let mut resource_distribution: HashMap<ObjectID, Vec<u32>> = map
+        .get_objects()
+        .map(|obj| (obj.id(), vec![0; 10]))
+        .collect();
 
-    let objects = map.get_objects();
+    let objects: HashMap<ObjectID, &Object> =
+        map.get_objects().map(|obj| (obj.id(), obj)).collect();
 
     let mut best_turn = 0;
     for turn in 1..=task.turns {
@@ -73,45 +76,47 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
         let mut queue = objects
             .iter()
-            .enumerate()
-            .filter(|(_, map_object)| matches!(map_object.object, Object::Factory { .. }))
-            .collect::<VecDeque<(usize, &MapObject)>>();
+            .filter(|(_, object)| matches!(*object, Object::Factory { .. }))
+            .map(|(id, object)| (*id, *object))
+            .collect::<VecDeque<(ObjectID, &Object)>>();
 
         // try to *pull* resources at ingresses
-        while let Some((index, object)) = queue.pop_front() {
+        while let Some((object_id, object)) = queue.pop_front() {
             // skip mines - mines dont 'pull' their resources, because deposits push them
             // at the *end of the turn* into the mines
-            if matches!(object.object, Object::Deposit { .. }) {
+            if matches!(object, Object::Deposit { .. }) {
                 continue;
             }
 
             let mut resources_incoming = vec![0; 10];
 
-            for (x, y) in object.ingresses.iter() {
+            for (x, y) in object.ingresses().iter() {
                 for (nx, ny) in neighbours(*x, *y) {
                     if let Some(ObjectCell::Exgress {
-                        index: index_incoming,
-                        ..
+                        id: id_incoming, ..
                     }) = map.get_cell(nx, ny)
                     {
                         // move resources
-                        let incoming_resources = resource_distribution[*index_incoming].clone();
-                        for (resource_index, value) in
-                            resource_distribution[index].iter_mut().enumerate()
+                        let incoming_resources = resource_distribution[id_incoming].clone();
+                        for (resource_index, value) in resource_distribution
+                            .get_mut(&object_id)
+                            .unwrap()
+                            .iter_mut()
+                            .enumerate()
                         {
                             *value += incoming_resources[resource_index];
                             resources_incoming[resource_index] +=
                                 incoming_resources[resource_index];
                         }
-                        resource_distribution[*index_incoming] = vec![0; 10];
+                        resource_distribution.insert(*id_incoming, vec![0; 10]);
 
                         // enqueue next object
-                        queue.push_back((*index_incoming, &objects[*index_incoming]));
+                        queue.push_back((*id_incoming, objects[id_incoming]));
                     }
                 }
             }
 
-            let (x, y) = object.object.coords();
+            let (x, y) = object.coords();
 
             if resources_incoming.iter().any(|value| *value > 0) && !quiet {
                 println!(
@@ -120,7 +125,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                     x,
                     y,
                     pretty_format_resources(&resources_incoming),
-                    pretty_format_resources(&resource_distribution[index]),
+                    pretty_format_resources(&resource_distribution[&object_id]),
                 );
             }
         }
@@ -129,36 +134,36 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
         let deposits = objects
             .iter()
-            .enumerate()
-            .filter(|(_, map_object)| matches!(map_object.object, Object::Deposit { .. }));
+            .filter(|(_, object)| matches!(object, Object::Deposit { .. }));
 
-        for (index, map_object) in deposits {
-            let resource_type = map_object
-                .object
+        for (deposit_id, deposit) in deposits {
+            let resource_type = deposit
                 .subtype()
                 .expect("Invalid deposit: must have subtype")
                 as usize;
 
             // let mut resources_outgoing = vec![0; 10];
 
-            for (x, y) in map_object.exgresses.iter() {
+            for (x, y) in deposit.exgresses().iter() {
                 for (nx, ny) in neighbours(*x, *y) {
                     if let Some(ObjectCell::Ingress {
-                        index: index_receiving,
-                        ..
+                        id: id_receiving, ..
                     }) = map.get_cell(nx, ny)
                     {
-                        let receiving_object = &objects[*index_receiving];
+                        let receiving_object = &objects[id_receiving];
 
-                        if let Object::Mine { .. } = receiving_object.object {
-                            let amount = resources[&index].min(3);
-                            resource_distribution[index][resource_type] += amount;
-                            // resources_outgoing[resource_type] += amount;
-                            if let Some(r) = resources.get_mut(&index) {
+                        if let Object::Mine { .. } = receiving_object {
+                            let amount = resources[deposit_id].min(3);
+                            // resource_distribution[deposit_id][resource_type] += amount;
+                            let deposits_resources =
+                                resource_distribution.get_mut(deposit_id).unwrap();
+                            deposits_resources[resource_type] += amount;
+
+                            if let Some(r) = resources.get_mut(deposit_id) {
                                 *r -= amount;
                             }
 
-                            let coords = map_object.object.coords();
+                            let coords = deposit.coords();
 
                             if amount > 0 && !quiet {
                                 println!(
@@ -169,7 +174,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                                     resource_type,
                                     amount,
                                     resource_type,
-                                    resources.get(&index).unwrap()
+                                    resources.get(deposit_id).unwrap()
                                 );
                             }
                         }
@@ -180,12 +185,11 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
         let factories = objects
             .iter()
-            .enumerate()
-            .filter(|(_, map_object)| matches!(map_object.object, Object::Factory { .. }));
+            .filter(|(_, object)| matches!(object, Object::Factory { .. }));
 
-        for (index, object) in factories {
-            if let Object::Factory { subtype, .. } = &objects[index].object {
-                let factory_resources = &mut resource_distribution[index];
+        for (factory_id, object) in factories {
+            if let Object::Factory { subtype, .. } = object {
+                let factory_resources = resource_distribution.get_mut(factory_id).unwrap();
                 if let Some(&product) = products_by_type.get(subtype) {
                     let can_produce = product.resources.iter().enumerate().all(
                         |(resource_index, resource_amount)| {
@@ -199,7 +203,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                             factory_resources[resource_index] -= amount;
                         }
 
-                        let (x, y) = object.object.coords();
+                        let (x, y) = object.coords();
 
                         if !quiet {
                             println!(

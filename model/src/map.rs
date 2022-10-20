@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use crate::{
     coord::{neighbours, Point},
-    object::{Coord, Object, ObjectCell, ObjectType},
+    object::{Coord, Object, ObjectCell, ObjectID, ObjectType},
 };
 
 #[derive(Debug, Clone)]
@@ -10,39 +10,7 @@ pub struct Map {
     width: u8,
     height: u8,
     map: HashMap<Point, ObjectCell>,
-    objects: Vec<MapObject>,
-}
-
-#[derive(Debug, Clone)]
-pub struct MapObject {
-    pub object: Object,
-    pub ingresses: Vec<Point>,
-    pub exgresses: Vec<Point>,
-}
-
-impl From<(usize, Object)> for MapObject {
-    fn from((index, object): (usize, Object)) -> Self {
-        // TODO: assert width <= 100 && height <= 100 in debug mode
-        let cells = object.get_cells(index);
-        let ingresses = cells
-            .iter()
-            .cloned()
-            .filter(|cell| matches!(cell.1, ObjectCell::Ingress { .. }))
-            .map(|(coord, _)| coord)
-            .collect();
-        let exgresses = cells
-            .iter()
-            .cloned()
-            .filter(|cell| matches!(cell.1, ObjectCell::Exgress { .. }))
-            .map(|(coord, _)| coord)
-            .collect();
-
-        MapObject {
-            object,
-            ingresses,
-            exgresses,
-        }
-    }
+    objects: HashMap<ObjectID, Object>,
 }
 
 impl Map {
@@ -51,7 +19,7 @@ impl Map {
         let mut map = Map {
             width,
             height,
-            objects: Vec::with_capacity(objects.len()),
+            objects: HashMap::new(),
             map: HashMap::new(),
         };
 
@@ -64,8 +32,12 @@ impl Map {
         map
     }
 
-    pub fn get_objects(&self) -> &Vec<MapObject> {
-        &self.objects
+    pub fn get_object(&self, id: ObjectID) -> &Object {
+        &self.objects[&id]
+    }
+
+    pub fn get_objects(&self) -> impl Iterator<Item = &Object> {
+        self.objects.values()
     }
 
     pub fn get_cell(&self, x: Coord, y: Coord) -> Option<&ObjectCell> {
@@ -90,7 +62,7 @@ impl Map {
             self.map.insert((x, y), cell);
         }
 
-        self.objects.push(MapObject::from((index, object)));
+        self.objects.insert(object.id(), object);
 
         Ok(index)
     }

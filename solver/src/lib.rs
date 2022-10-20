@@ -7,7 +7,7 @@ use std::{
 
 use model::{
     coord::{neighbours, Point},
-    map::{Map, MapObject},
+    map::Map,
     object::{Coord, Object, ObjectCell, ObjectType, Subtype},
     task::Task,
 };
@@ -121,7 +121,7 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
         // place factories
 
-        let mut factory_indices = Vec::new();
+        let mut factory_ids = Vec::new();
 
         for product in task.products.iter() {
             let factory_type = product.subtype;
@@ -139,11 +139,13 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                     y: factory_location.1,
                     subtype: product.subtype,
                 };
+                let factory_id = factory.id();
+
                 match map.insert_object(factory) {
-                    Ok(factory_index) => {
+                    Ok(_) => {
                         // TODO: update factory_positions weights, so that conflicting positions
                         // can not be picked anymore
-                        factory_indices.push(factory_index);
+                        factory_ids.push(factory_id);
                         break 'factory_placement;
                     }
                     Err(_) => {
@@ -162,9 +164,9 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
         // construct shortest paths from factories to deposits
 
-        for &factory_index in factory_indices.iter() {
-            let factory = map.get_objects()[factory_index].clone();
-            let subtype = factory.object.subtype().unwrap();
+        for &factory_id in factory_ids.iter() {
+            let factory = map.get_object(factory_id);
+            let subtype = factory.subtype().unwrap();
             let product = task // TODO: use lookup table
                 .products
                 .iter()
@@ -183,7 +185,7 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
                 let shortest_paths = build_shortest_paths_from_factory_to_deposit(
                     NUM_PATHS_PER_FACTORY_AND_RESOURCE,
-                    &factory,
+                    factory,
                     resource_index,
                     &map,
                     &mut rng,
@@ -198,9 +200,9 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
         'combining_paths: for _ in 0..NUM_PATH_COMBINING_ITERATIONS {
             // TODO: shuffle factory_indices
-            for &factory_index in factory_indices.iter() {
-                let factory = map.get_objects()[factory_index].clone();
-                let subtype = factory.object.subtype().unwrap();
+            for &factory_id in factory_ids.iter() {
+                let factory = map.get_object(factory_id);
+                let subtype = factory.subtype().unwrap();
                 let product = task // TODO: use lookup table
                     .products
                     .iter()
@@ -223,7 +225,7 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                     // TODO: pick better paths with higher probability
                     let path = &shortest_paths[rng.gen_range(0..shortest_paths.len())];
 
-                    if let Err(e) = map.try_insert_objects(path.into()) {
+                    if map.try_insert_objects(path.into()).is_err() {
                         continue 'combining_paths;
                     }
                 }
@@ -383,7 +385,7 @@ fn sort_to_best_positions_by_deposits(
 /// Constructs the shortest path from a factory to a deposit of subtype `resource_index`
 fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
     num_paths: u32,
-    factory: &MapObject,
+    factory: &Object,
     resource_index: usize,
     map: &Map,
     rng: &mut R,
@@ -392,7 +394,7 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
     let mut paths = Vec::with_capacity(num_paths as usize);
     let mut queue: VecDeque<Rc<Path>> = VecDeque::new();
 
-    let mut ingresses = factory.ingresses.clone();
+    let mut ingresses = factory.ingresses();
     ingresses.shuffle(rng);
     let path = Path::from_starting_points(ingresses);
     queue.push_front(Rc::new(path));
@@ -426,10 +428,10 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
                     let mine_reaches_deposit = neighbours(mine_ingress.0, mine_ingress.1)
                         .into_iter()
                         .any(|(x, y)| match map.get_cell(x, y) {
-                            Some(ObjectCell::Exgress { index, .. }) => {
-                                let obj = &map.get_objects()[*index];
-                                obj.object.kind() == ObjectType::Deposit
-                                    && obj.object.subtype() == Some(resource_index as u8)
+                            Some(ObjectCell::Exgress { id, .. }) => {
+                                let obj = map.get_object(*id);
+                                obj.kind() == ObjectType::Deposit
+                                    && obj.subtype() == Some(resource_index as u8)
                             }
                             _ => false,
                         });

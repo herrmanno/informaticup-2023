@@ -172,11 +172,11 @@ impl Object {
         let height = self.height().unwrap_or(0);
 
         ((kind as u64) << 48)
-            + ((subtype as u64) << 40)
-            + ((x as u64) << 32)
-            + ((y as u64) << 16)
-            + ((width as u64) << 8)
-            + (height as u64)
+            | ((subtype as u64) << 40)
+            | ((x as u64) << 32)
+            | ((y as u64) << 16)
+            | ((width as u64) << 8)
+            | (height as u64)
     }
 
     pub fn coords(&self) -> Point {
@@ -312,6 +312,30 @@ impl Object {
             _ => todo!(),
         }
     }
+
+    pub fn exgresses(&self) -> Vec<Point> {
+        match self {
+            Object::Deposit {
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => {
+                let mut exgresses = Vec::with_capacity(18);
+                for dx in (*x)..(*x + *width as Coord) {
+                    exgresses.push((dx, *y));
+                    exgresses.push((dx, *y + 4));
+                }
+                for dy in (*y + 1)..(*y + *height as Coord) {
+                    exgresses.push((*x, dy));
+                    exgresses.push((*x + 4, dy));
+                }
+                exgresses
+            }
+            _ => self.exgress().into_iter().collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -328,11 +352,11 @@ pub enum ObjectType {
 pub enum ObjectCell {
     Exgress {
         kind: ObjectType,
-        index: usize,
+        id: ObjectID,
     },
     Ingress {
         kind: ObjectType,
-        index: usize,
+        id: ObjectID,
     },
     Inner {
         kind: ObjectType,
@@ -364,9 +388,11 @@ impl From<&ObjectCell> for char {
 
 impl Object {
     /// Calculates the fields occupied by this object
-    pub fn get_cells(&self, index: usize) -> Vec<(Point, ObjectCell)> {
+    pub fn get_cells(&self, _index: usize) -> Vec<(Point, ObjectCell)> {
         use Object::*;
         use ObjectCell::*;
+
+        let id = self.id();
 
         match *self {
             Obstacle {
@@ -408,7 +434,7 @@ impl Object {
                                 (px, py),
                                 Exgress {
                                     kind: ObjectType::Deposit,
-                                    index,
+                                    id,
                                 },
                             ));
                         } else {
@@ -433,7 +459,7 @@ impl Object {
                                 (px, py),
                                 Ingress {
                                     kind: ObjectType::Factory,
-                                    index,
+                                    id,
                                 },
                             ));
                         } else {
@@ -484,14 +510,14 @@ impl Object {
                             (x - 1, y + 1),
                             Ingress {
                                 kind: ObjectType::Mine,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x + 2, y + 1),
                             Exgress {
                                 kind: ObjectType::Mine,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -529,14 +555,14 @@ impl Object {
                             (x, y - 1),
                             Ingress {
                                 kind: ObjectType::Mine,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x, y + 2),
                             Exgress {
                                 kind: ObjectType::Mine,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -574,14 +600,14 @@ impl Object {
                             (x - 1, y),
                             Exgress {
                                 kind: ObjectType::Mine,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x + 2, y),
                             Ingress {
                                 kind: ObjectType::Mine,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -619,14 +645,14 @@ impl Object {
                             (x + 1, y - 1),
                             Exgress {
                                 kind: ObjectType::Mine,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x + 1, y + 2),
                             Ingress {
                                 kind: ObjectType::Mine,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -647,21 +673,21 @@ impl Object {
                         (-1, -1),
                         Ingress {
                             kind: ObjectType::Combiner,
-                            index,
+                            id,
                         },
                     ),
                     (
                         (-1, 0),
                         Ingress {
                             kind: ObjectType::Combiner,
-                            index,
+                            id,
                         },
                     ),
                     (
                         (-1, 1),
                         Ingress {
                             kind: ObjectType::Combiner,
-                            index,
+                            id,
                         },
                     ),
                     (
@@ -682,7 +708,7 @@ impl Object {
                         (1, 0),
                         Exgress {
                             kind: ObjectType::Combiner,
-                            index,
+                            id,
                         },
                     ),
                 ];
@@ -714,14 +740,14 @@ impl Object {
                             (x - 1, y),
                             Ingress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x + 1, y),
                             Exgress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -738,14 +764,14 @@ impl Object {
                             (x, y - 1),
                             Ingress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x, y + 1),
                             Exgress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -762,14 +788,14 @@ impl Object {
                             (x - 1, y),
                             Exgress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x + 1, y),
                             Ingress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -786,14 +812,14 @@ impl Object {
                             (x, y - 1),
                             Exgress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x, y + 1),
                             Ingress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -817,14 +843,14 @@ impl Object {
                             (x - 1, y),
                             Ingress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x + 2, y),
                             Exgress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -848,14 +874,14 @@ impl Object {
                             (x, y - 1),
                             Ingress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x, y + 2),
                             Exgress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -879,14 +905,14 @@ impl Object {
                             (x - 1, y),
                             Exgress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x + 2, y),
                             Ingress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                     ]
@@ -910,14 +936,14 @@ impl Object {
                             (x, y - 1),
                             Exgress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                         (
                             (x, y + 2),
                             Ingress {
                                 kind: ObjectType::Conveyor,
-                                index,
+                                id,
                             },
                         ),
                     ]
