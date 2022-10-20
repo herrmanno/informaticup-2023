@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.0.15", features = ["derive"] }
 model = { path = "../model" }
+simulator = { path = "../simulator" }
+rand = "0.8.5"

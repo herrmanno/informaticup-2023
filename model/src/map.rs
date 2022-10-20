@@ -81,6 +81,7 @@ impl Map {
     }
 
     pub fn insert_object(&mut self, object: Object) -> Result<usize, String> {
+        // FIXME: allow placing the *same* (by type, position, etc.) object above it self
         let index = self.objects.len();
         self.can_insert_object(&object)?;
 
@@ -92,6 +93,40 @@ impl Map {
         self.objects.push(MapObject::from((index, object)));
 
         Ok(index)
+    }
+
+    pub fn try_insert_objects(&mut self, objects: Vec<Object>) -> Result<Vec<usize>, String> {
+        let mut indices = Vec::with_capacity(objects.capacity());
+
+        let mut inserted = 0;
+        for object in objects.iter() {
+            match self.insert_object(object.clone()) {
+                Ok(index) => {
+                    indices.push(index);
+                    inserted += 1;
+                }
+                Err(e) => {
+                    for object in objects.iter().take(inserted) {
+                        self.remove_object(object)?;
+                    }
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(indices)
+    }
+
+    pub fn remove_object(&mut self, object: &Object) -> Result<(), String> {
+        // FIXME: cannot remove object from `self.objects`, because the position of remaining
+        // object in that vector is crucial.
+        // Should switch to storing objects in HashMap<ObjectID,Object> or in
+        // HashSet<ObjectID>
+        for (point, _) in object.get_cells(0) {
+            self.map.remove(&point);
+        }
+
+        Ok(())
     }
 
     pub fn can_insert_object(&self, object: &Object) -> Result<(), String> {

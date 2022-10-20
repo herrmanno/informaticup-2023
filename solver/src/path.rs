@@ -5,7 +5,7 @@ use model::{
     object::{Object, ObjectCell, ObjectType},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum Path {
     End { ingresses: Vec<Point> },
     Segment { object: Object, tail: Rc<Path> },
@@ -84,7 +84,7 @@ impl Path {
     }
 
     /// Return an Iterator over this path's objects
-    fn objects(&self) -> PathObjects {
+    pub fn objects(&self) -> impl Iterator<Item = &Object> {
         PathObjects { path: self }
     }
 }

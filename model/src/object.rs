@@ -15,7 +15,7 @@ pub type Subtype = u8;
 /// Object type (8 bits) + object subtype (8 bits) + x (8 bits) + y (8 bits) + width (8 bits) + height (8 bits)
 pub type ObjectID = u64;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Object {
     Obstacle {
         x: Coord,

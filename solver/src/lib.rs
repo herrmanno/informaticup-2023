@@ -8,11 +8,19 @@ use std::{
 use model::{
     coord::{neighbours, Point},
     map::{Map, MapObject},
-    object::{Coord, Object, ObjectCell, ObjectType},
+    object::{Coord, Object, ObjectCell, ObjectType, Subtype},
     task::Task,
 };
 
 use path::Path;
+use rand::{
+    distributions::WeightedIndex, prelude::Distribution, seq::SliceRandom, thread_rng, Rng,
+};
+use simulator::{simulate, SimulatorResult};
+
+const NUM_ITERATIONS: u32 = 500;
+const NUM_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 500;
+const NUM_PATH_COMBINING_ITERATIONS: u32 = 1000;
 
 pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
     // prepare helper state that is useful for remaining algorithm
@@ -52,9 +60,23 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
         deposits
     };
 
-    let mut map = original_map.clone();
-    let possible_factory_locations = find_possible_factory_positions(&map);
-    let mut available_factory_locations = possible_factory_locations;
+    let possible_factory_locations = find_possible_factory_positions(original_map);
+    // let mut available_factory_locations = possible_factory_locations;
+
+    let best_factory_positions_by_factory_subtype: HashMap<
+        Subtype,
+        (WeightedIndex<f32>, Vec<Point>),
+    > = task
+        .products
+        .iter()
+        .map(|product| {
+            let factory_type = product.subtype;
+            let deposits = &deposits_by_product[&factory_type];
+            let (probabilities, best_positions) =
+                sort_to_best_positions_by_deposits(&possible_factory_locations, deposits);
+            (factory_type, (probabilities, best_positions))
+        })
+        .collect();
 
     println!("{}", original_map);
 
@@ -88,117 +110,144 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
            - (try to generate even more paths)
     */
 
+    let mut rng = thread_rng();
+
     // start iterating
 
-    let mut factory_indices = Vec::new();
+    let mut best_solution: Option<(SimulatorResult, Map)> = None;
 
-    // place factories
+    for _ in 0..NUM_ITERATIONS {
+        let mut map = original_map.clone();
 
-    for product in task.products.iter() {
-        let interesting_deposits = &deposits_by_product[&product.subtype];
+        // place factories
 
-        let best_location =
-            available_factory_locations
-                .iter()
-                .enumerate()
-                .min_by_key(|(_, position)| {
-                    // TODO: weight deposit (resource types) by importance for product
-                    let distances = interesting_deposits
-                        .iter()
-                        .map(|deposit| {
-                            let (x, y) = position;
-                            let (dx, dy) = deposit.coords();
-                            // TODO: use path distance instead of manhattan distance (see task 004)
-                            (x - dx).abs() as i32 + (y - dy).abs() as i32
-                        })
-                        .collect::<Vec<i32>>();
+        let mut factory_indices = Vec::new();
 
-                    let sum = distances.iter().sum::<i32>();
-                    let mean_distance = sum / distances.len() as i32;
-                    let deviation = distances
-                        .iter()
-                        .map(|&i| (i - mean_distance).abs())
-                        .sum::<i32>();
+        for product in task.products.iter() {
+            let factory_type = product.subtype;
+            let (factory_location_distribution, factory_locations) =
+                &best_factory_positions_by_factory_subtype[&factory_type];
 
-                    sum + deviation
-                });
+            'factory_placement: loop {
+                let factory_location =
+                    factory_locations[factory_location_distribution.sample(&mut rng)];
 
-        // TODO: check that for each required resource type, a deposit of such type is
-        // reachable (simple path finding) from this factory location
-        if let Some((location_index, &(x, y))) = best_location {
-            available_factory_locations.swap_remove(location_index);
-            let factory = Object::Factory {
-                x,
-                y,
-                subtype: product.subtype,
-            };
-            match map.insert_object(factory) {
-                Ok(factory_index) => factory_indices.push(factory_index),
-                Err(e) => panic!("{}", e),
-            }
-
-            let min_x = if x > 4 { x - 4 } else { 0 };
-            let min_y = if y > 4 { y - 4 } else { 0 };
-            available_factory_locations.retain(|coord| {
-                !((min_x..x + 5).contains(&coord.0) && (min_y..y + 5).contains(&coord.1))
-            });
-        } else {
-            panic!(
-                "Cannot place factory for product {}. No position available.",
-                product.subtype
-            );
-        }
-    }
-
-    // construct factory -> deposit paths
-
-    for factory_index in factory_indices {
-        let factory = map.get_objects()[factory_index].clone();
-        let subtype = factory.object.subtype().unwrap();
-        let product = task // TODO: use lookup table
-            .products
-            .iter()
-            .find(|product| product.subtype == subtype)
-            .unwrap_or_else(|| {
-                panic!(
-                    "No product found for subtype {} but a factory is present",
-                    subtype
-                )
-            });
-
-        // TODO: sort by: distance to deposit (start with furthest) OR importance of resource type
-        for (resource_index, &amount) in product.resources.iter().enumerate() {
-            if amount == 0 {
-                continue;
-            }
-
-            println!(
-                "Finding shortest path from factory at {:?} to deposit of type {}",
-                factory.object.coords(),
-                resource_index
-            );
-            if let Some(path) =
-                build_shortest_path_from_factory_to_deposit(&factory, resource_index, &map)
-            {
-                // TODO: store additional ingresses of path for next path finding from same factory
-                for object in Into::<Vec<Object>>::into(path) {
-                    // TODO: may insert unchecked, because we already know all parts are legal
-                    if let Err(e) = map.insert_object(object) {
-                        unreachable!("Error while inserting path object onto map: '{}'", e)
+                // TODO: check that for each required resource type, a deposit of such type is
+                // reachable (simple path finding) from this factory location
+                let factory = Object::Factory {
+                    x: factory_location.0,
+                    y: factory_location.1,
+                    subtype: product.subtype,
+                };
+                match map.insert_object(factory) {
+                    Ok(factory_index) => {
+                        // TODO: update factory_positions weights, so that conflicting positions
+                        // can not be picked anymore
+                        factory_indices.push(factory_index);
+                        break 'factory_placement;
+                    }
+                    Err(_) => {
+                        // this factory cannot be placed here because another factory blocks its place.
+                        // try to choose another location for this factory
+                        continue;
                     }
                 }
-                println!("{}", map);
-            } else {
-                println!(
-                    "WARN: Could not find path from factory at {:?} to deposit of type {}",
-                    factory.object.coords(),
-                    resource_index
-                )
             }
         }
-    }
 
-    println!("{}", map);
+        // construct factory -> deposit paths
+
+        let mut paths_from_factory_to_resource: HashMap<(Subtype, Subtype), Vec<Path>> =
+            HashMap::new();
+
+        // construct shortest paths from factories to deposits
+
+        for &factory_index in factory_indices.iter() {
+            let factory = map.get_objects()[factory_index].clone();
+            let subtype = factory.object.subtype().unwrap();
+            let product = task // TODO: use lookup table
+                .products
+                .iter()
+                .find(|product| product.subtype == subtype)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "No product found for subtype {} but a factory is present",
+                        subtype
+                    )
+                });
+
+            for (resource_index, &amount) in product.resources.iter().enumerate() {
+                if amount == 0 {
+                    continue;
+                }
+
+                let shortest_paths = build_shortest_paths_from_factory_to_deposit(
+                    NUM_PATHS_PER_FACTORY_AND_RESOURCE,
+                    &factory,
+                    resource_index,
+                    &map,
+                    &mut rng,
+                );
+
+                paths_from_factory_to_resource
+                    .insert((subtype, resource_index as Subtype), shortest_paths);
+            }
+        }
+
+        // chose path combinations
+
+        'combining_paths: for _ in 0..NUM_PATH_COMBINING_ITERATIONS {
+            // TODO: shuffle factory_indices
+            for &factory_index in factory_indices.iter() {
+                let factory = map.get_objects()[factory_index].clone();
+                let subtype = factory.object.subtype().unwrap();
+                let product = task // TODO: use lookup table
+                    .products
+                    .iter()
+                    .find(|product| product.subtype == subtype)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "No product found for subtype {} but a factory is present",
+                            subtype
+                        )
+                    });
+
+                // TODO: sort by: distance to deposit (start with furthest) OR importance of resource type
+                for (resource_index, &amount) in product.resources.iter().enumerate() {
+                    if amount == 0 {
+                        continue;
+                    }
+
+                    let shortest_paths =
+                        &paths_from_factory_to_resource[&(subtype, resource_index as Subtype)];
+                    // TODO: pick better paths with higher probability
+                    let path = &shortest_paths[rng.gen_range(0..shortest_paths.len())];
+
+                    if let Err(e) = map.try_insert_objects(path.into()) {
+                        continue 'combining_paths;
+                    }
+                }
+            }
+
+            break 'combining_paths;
+
+            //TODO: try to build even more paths onto map
+        }
+
+        let map_score = simulate(task, &map, true);
+
+        best_solution = if let Some((result, best_map)) = best_solution {
+            if map_score > result {
+                println!("{:?}", map_score);
+                println!("{}", map);
+                Some((map_score, map))
+            } else {
+                Some((result, best_map))
+            }
+        } else {
+            Some((map_score, map))
+        };
+    }
     /*
        STEPS
        1. for every product, that has deposits on board (in descending order by possability to produce goods)
@@ -273,21 +322,85 @@ fn find_possible_factory_positions(map: &Map) -> Vec<Point> {
     positions
 }
 
+fn sort_to_best_positions_by_deposits(
+    positions: &[Point],
+    deposits: &[Object],
+) -> (WeightedIndex<f32>, Vec<Point>) {
+    let mut positions_with_distances: Vec<(i32, &Point)> = positions
+        .iter()
+        .map(|position| {
+            // TODO: weight deposit (resource types) by importance for product
+            let distances = deposits
+                .iter()
+                .map(|deposit| {
+                    let (x, y) = position;
+                    let (dx, dy) = deposit.coords();
+                    // TODO: use path distance instead of manhattan distance (see task 004)
+                    (x - dx).abs() as i32 + (y - dy).abs() as i32
+                })
+                .collect::<Vec<i32>>();
+
+            let sum = distances.iter().sum::<i32>();
+            let mean_distance = sum / distances.len() as i32;
+            let deviation = distances
+                .iter()
+                .map(|&i| (i - mean_distance).abs())
+                .sum::<i32>();
+
+            let distance = sum + deviation;
+
+            (distance, position)
+        })
+        .collect();
+
+    positions_with_distances.sort_unstable_by_key(|(distance, _)| *distance);
+
+    let probabilites: Vec<f32> = positions_with_distances
+        .iter()
+        .map(|(distance, _)| 1f32 / (*distance).max(1) as f32)
+        .collect();
+
+    let weights =
+        WeightedIndex::new(probabilites).expect("Cannot build weights from factory locations");
+
+    let positions: Vec<Point> = positions_with_distances
+        .into_iter()
+        .map(|(_, position)| position)
+        .cloned()
+        .collect();
+
+    (weights, positions)
+}
+
+// fn build_shortest_path_from_factory_to_deposit(
+//     factory: &MapObject,
+//     resource_index: usize,
+//     map: &Map,
+// ) -> Option<Path> {
+//     build_shortest_paths_from_factory_to_deposit(0, factory, resource_index, map).first().cloned()
+// }
+
 /// Constructs the shortest path from a factory to a deposit of subtype `resource_index`
-fn build_shortest_path_from_factory_to_deposit(
+fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
+    num_paths: u32,
     factory: &MapObject,
     resource_index: usize,
     map: &Map,
-) -> Option<Path> {
+    rng: &mut R,
+) -> Vec<Path> {
+    let mut i = 0;
+    let mut paths = Vec::with_capacity(num_paths as usize);
     let mut queue: VecDeque<Rc<Path>> = VecDeque::new();
 
-    let path = Path::from_starting_points(factory.ingresses.clone());
+    let mut ingresses = factory.ingresses.clone();
+    ingresses.shuffle(rng);
+    let path = Path::from_starting_points(ingresses);
     queue.push_front(Rc::new(path));
 
     let mut visited = HashSet::new();
 
     // TODO: sort queue by current distance to possible target
-    while let Some(path) = queue.pop_front() {
+    'bfs: while let Some(path) = queue.pop_front() {
         for (x, y) in path.heads() {
             if visited.contains(&(x, y)) {
                 continue;
@@ -328,7 +441,12 @@ fn build_shortest_path_from_factory_to_deposit(
                         {
                             Ok(path) => {
                                 // return Some((&path).into());
-                                return Some(path);
+                                paths.push(path);
+                                i += 1;
+
+                                if i == num_paths {
+                                    break 'bfs;
+                                }
                             }
                             Err(_e) => {}
                         }
@@ -362,5 +480,5 @@ fn build_shortest_path_from_factory_to_deposit(
         }
     }
 
-    None
+    paths
 }
