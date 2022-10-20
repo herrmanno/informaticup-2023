@@ -3,8 +3,8 @@ use serde_json;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Task {
-    pub width: u32,
-    pub height: u32,
+    pub width: u8,
+    pub height: u8,
     pub objects: Vec<Object>,
     pub products: Vec<Product>,
     pub turns: u32,
@@ -24,10 +24,10 @@ pub struct Object {
     #[serde(rename = "type")]
     pub kind: String,
     pub subtype: Option<u8>,
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
+    pub x: i8,
+    pub y: i8,
+    pub width: u8,
+    pub height: u8,
 }
 
 #[derive(Deserialize, Debug, Clone)]

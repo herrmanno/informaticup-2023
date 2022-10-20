@@ -1,20 +1,20 @@
 use std::{borrow::Borrow, rc::Rc};
 
 use model::{
-    coord::Coord,
+    coord::Point,
     object::{Object, ObjectCell, ObjectType},
 };
 
 #[derive(Debug)]
 pub(crate) enum Path {
-    End { ingresses: Vec<Coord> },
+    End { ingresses: Vec<Point> },
     Segment { object: Object, tail: Rc<Path> },
 }
 
 /// A path of objects
 impl Path {
     /// Creates an empty path with given ingresses as heads
-    pub fn from_starting_points(starting_points: Vec<Coord>) -> Self {
+    pub fn from_starting_points(starting_points: Vec<Point>) -> Self {
         Path::End {
             ingresses: starting_points,
         }
@@ -34,7 +34,7 @@ impl Path {
     }
 
     /// Returns all ingresses of the path's head
-    pub fn heads(&self) -> Vec<Coord> {
+    pub fn heads(&self) -> Vec<Point> {
         match self {
             Path::End { ingresses } => ingresses.clone(),
             Path::Segment { object, .. } => object.ingresses(),
@@ -42,7 +42,7 @@ impl Path {
     }
 
     /// Returns all ingresses along the path
-    pub fn all_ingresses(&self) -> Vec<Coord> {
+    pub fn all_ingresses(&self) -> Vec<Point> {
         let mut ingresses = vec![];
 
         for object in self.objects() {

@@ -6,9 +6,9 @@ use std::{
 };
 
 use model::{
-    coord::{neighbours, Coord},
+    coord::{neighbours, Point},
     map::{Map, MapObject},
-    object::{Object, ObjectCell, ObjectType},
+    object::{Coord, Object, ObjectCell, ObjectType},
     task::Task,
 };
 
@@ -58,6 +58,36 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
     println!("{}", original_map);
 
+    /*
+       IDEA
+       ================
+
+       Before iterating:
+       - construct a list of best factory locations for each factory (=product) type needed
+
+       For each iteration:
+       - for each factory type:
+           - pick a factory position with probability equal to its 'value' in list of best positions,
+             where value means distance to all deposits. So if there are three possible positions
+             p_0, p_1, p_2, with distances 20, 30, 50 respectively, the probability to pick
+              p_0 = (20 + 30 + 50) / 20
+              p_1 = (20 + 30 + 50) / 30
+              p_2 = (20 + 30 + 50) / 50
+              normalised.
+       - place factory combination on a tabu list
+       - for each factory f:
+           - for each resource type r:
+               - paths_f_r := create iterator of shortest paths from factory to resource
+       - do n times:
+           - for each factory f:
+               - for each resource type r:
+                   - pick `path` from paths_f_r with index between 0..n (with descending probability?)
+                   - place `path`
+                       - if failure continue `do n times`-loop
+           - store result
+           - (try to generate even more paths)
+    */
+
     // start iterating
 
     let mut factory_indices = Vec::new();
@@ -79,7 +109,7 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                             let (x, y) = position;
                             let (dx, dy) = deposit.coords();
                             // TODO: use path distance instead of manhattan distance (see task 004)
-                            (x - dx).abs() + (y - dy).abs()
+                            (x - dx).abs() as i32 + (y - dy).abs() as i32
                         })
                         .collect::<Vec<i32>>();
 
@@ -189,9 +219,9 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 }
 
 /// Finds all locations, at which a 5x5 factory could be legally placed
-fn find_possible_factory_positions(map: &Map) -> Vec<Coord> {
-    let width = map.width();
-    let height = map.height();
+fn find_possible_factory_positions(map: &Map) -> Vec<Point> {
+    let width = map.width() as Coord;
+    let height = map.height() as Coord;
 
     let free_cells = {
         let mut v = vec![];

@@ -1,27 +1,28 @@
 use std::{collections::HashMap, fmt::Display};
 
 use crate::{
-    coord::{neighbours, Coord},
-    object::{Object, ObjectCell, ObjectType},
+    coord::{neighbours, Point},
+    object::{Coord, Object, ObjectCell, ObjectType},
 };
 
 #[derive(Debug, Clone)]
 pub struct Map {
-    width: u32,
-    height: u32,
-    map: HashMap<Coord, ObjectCell>,
+    width: u8,
+    height: u8,
+    map: HashMap<Point, ObjectCell>,
     objects: Vec<MapObject>,
 }
 
 #[derive(Debug, Clone)]
 pub struct MapObject {
     pub object: Object,
-    pub ingresses: Vec<Coord>,
-    pub exgresses: Vec<Coord>,
+    pub ingresses: Vec<Point>,
+    pub exgresses: Vec<Point>,
 }
 
 impl From<(usize, Object)> for MapObject {
     fn from((index, object): (usize, Object)) -> Self {
+        // TODO: assert width <= 100 && height <= 100 in debug mode
         let cells = object.get_cells(index);
         let ingresses = cells
             .iter()
@@ -45,7 +46,8 @@ impl From<(usize, Object)> for MapObject {
 }
 
 impl Map {
-    pub fn new(width: u32, height: u32, objects: Vec<Object>) -> Self {
+    pub fn new(width: u8, height: u8, objects: Vec<Object>) -> Self {
+        // TODO: assert width <= 100 && height <= 100 in debug mode
         let mut map = Map {
             width,
             height,
@@ -66,16 +68,16 @@ impl Map {
         &self.objects
     }
 
-    pub fn get_cell(&self, x: i32, y: i32) -> Option<&ObjectCell> {
+    pub fn get_cell(&self, x: Coord, y: Coord) -> Option<&ObjectCell> {
         self.map.get(&(x, y))
     }
 
-    pub fn width(&self) -> i32 {
-        self.width as i32
+    pub fn width(&self) -> u8 {
+        self.width as u8
     }
 
-    pub fn height(&self) -> i32 {
-        self.height as i32
+    pub fn height(&self) -> u8 {
+        self.height as u8
     }
 
     pub fn insert_object(&mut self, object: Object) -> Result<usize, String> {
@@ -100,7 +102,7 @@ impl Map {
         // check that no part of object is outside map or placed over another building
         let cells = object.get_cells(index);
         for ((x, y), cell) in cells.iter() {
-            if *x < 0 || *y < 0 || *x >= width || *y >= height {
+            if *x < 0 || *y < 0 || *x >= width as Coord || *y >= height as Coord {
                 return Err(format!("Cannot insert cell at {:?}", (x, y)));
             } else if let Some(old_cell) = self.map.get(&(*x, *y)) {
                 if !(matches!(
@@ -221,8 +223,8 @@ impl Display for Map {
         }
         f.write_str("\n")?;
 
-        let width = self.width() as i32;
-        let height = self.height() as i32;
+        let width = self.width() as Coord;
+        let height = self.height() as Coord;
         for y in 0..height {
             f.write_fmt(format_args!("{:0>2} ", y))?;
             for x in 0..width {

@@ -1,46 +1,59 @@
 use core::panic;
 
-use crate::{coord::Coord, solution, task};
+use crate::{coord::Point, solution, task};
+
+/// Object's x or y
+/// TODO: change to u8 and handle subtractions
+pub type Coord = i8;
+
+/// Object's width or height
+pub type Length = u8;
+
+/// Object's subtype
+pub type Subtype = u8;
+
+/// Object type (8 bits) + object subtype (8 bits) + x (8 bits) + y (8 bits) + width (8 bits) + height (8 bits)
+pub type ObjectID = u64;
 
 #[derive(Debug, Clone)]
 pub enum Object {
     Obstacle {
-        x: i32,
-        y: i32,
-        width: u32,
-        height: u32,
+        x: Coord,
+        y: Coord,
+        width: Length,
+        height: Length,
     },
     Deposit {
-        x: i32,
-        y: i32,
-        width: u32,
-        height: u32,
-        subtype: u8,
+        x: Coord,
+        y: Coord,
+        width: Length,
+        height: Length,
+        subtype: Subtype,
     },
     Mine {
-        x: i32,
-        y: i32,
-        subtype: u8,
+        x: Coord,
+        y: Coord,
+        subtype: Subtype,
     },
     Factory {
-        x: i32,
-        y: i32,
-        subtype: u8,
+        x: Coord,
+        y: Coord,
+        subtype: Subtype,
     },
     Conveyor {
-        x: i32,
-        y: i32,
-        subtype: u8,
+        x: Coord,
+        y: Coord,
+        subtype: Subtype,
     },
     Combiner {
-        x: i32,
-        y: i32,
-        subtype: u8,
+        x: Coord,
+        y: Coord,
+        subtype: Subtype,
     },
 }
 
 impl Object {
-    pub fn mine_with_subtype_and_exgress_at(subtype: u8, exgress_position: Coord) -> Object {
+    pub fn mine_with_subtype_and_exgress_at(subtype: u8, exgress_position: Point) -> Object {
         let (x, y) = exgress_position;
         match subtype {
             0 => Object::Mine {
@@ -67,7 +80,7 @@ impl Object {
         }
     }
 
-    pub fn conveyor_with_subtype_and_exgress_at(subtype: u8, exgress_position: Coord) -> Object {
+    pub fn conveyor_with_subtype_and_exgress_at(subtype: u8, exgress_position: Point) -> Object {
         let (x, y) = exgress_position;
         match subtype {
             0 => Object::Conveyor {
@@ -114,7 +127,7 @@ impl Object {
         }
     }
 
-    pub fn combiner_with_subtype_and_exgress_at(subtype: u8, exgress_position: Coord) -> Object {
+    pub fn combiner_with_subtype_and_exgress_at(subtype: u8, exgress_position: Point) -> Object {
         let (x, y) = exgress_position;
         match subtype {
             0 => Object::Combiner {
@@ -141,7 +154,32 @@ impl Object {
         }
     }
 
-    pub fn coords(&self) -> Coord {
+    /// Calculate a unique id based on this object's values
+    pub fn id(&self) -> ObjectID {
+        // TODO: benchmark against pre-calculating and storing id
+        let kind = match self {
+            Object::Obstacle { .. } => 0,
+            Object::Deposit { .. } => 1,
+            Object::Mine { .. } => 2,
+            Object::Factory { .. } => 3,
+            Object::Conveyor { .. } => 4,
+            Object::Combiner { .. } => 5,
+        };
+
+        let subtype = self.subtype().unwrap_or(0);
+        let (x, y) = self.coords();
+        let width = self.width().unwrap_or(0);
+        let height = self.height().unwrap_or(0);
+
+        ((kind as u64) << 48)
+            + ((subtype as u64) << 40)
+            + ((x as u64) << 32)
+            + ((y as u64) << 16)
+            + ((width as u64) << 8)
+            + (height as u64)
+    }
+
+    pub fn coords(&self) -> Point {
         match self {
             Object::Obstacle { x, y, .. } => (*x, *y),
             Object::Deposit { x, y, .. } => (*x, *y),
@@ -149,6 +187,22 @@ impl Object {
             Object::Factory { x, y, .. } => (*x, *y),
             Object::Conveyor { x, y, .. } => (*x, *y),
             Object::Combiner { x, y, .. } => (*x, *y),
+        }
+    }
+
+    pub fn width(&self) -> Option<Length> {
+        match self {
+            Object::Obstacle { width, .. } => Some(*width),
+            Object::Deposit { width, .. } => Some(*width),
+            _ => None,
+        }
+    }
+
+    pub fn height(&self) -> Option<Length> {
+        match self {
+            Object::Obstacle { height, .. } => Some(*height),
+            Object::Deposit { height, .. } => Some(*height),
+            _ => None,
         }
     }
 
@@ -174,7 +228,7 @@ impl Object {
         }
     }
 
-    pub fn ingress(&self) -> Option<Coord> {
+    pub fn ingress(&self) -> Option<Point> {
         match self {
             Object::Mine { x, y, subtype: 0 } => Some((x - 1, y + 1)),
             Object::Mine { x, y, subtype: 1 } => Some((*x, y - 1)),
@@ -198,7 +252,7 @@ impl Object {
         }
     }
 
-    pub fn ingresses(&self) -> Vec<Coord> {
+    pub fn ingresses(&self) -> Vec<Point> {
         match self {
             Object::Combiner { x, y, subtype: 0 } => {
                 vec![(x - 1, y - 1), (x - 1, *y), (x - 1, y + 1)]
@@ -234,7 +288,7 @@ impl Object {
         }
     }
 
-    pub fn exgress(&self) -> Option<Coord> {
+    pub fn exgress(&self) -> Option<Point> {
         match self {
             Object::Mine { x, y, subtype: 0 } => Some((x + 2, y + 1)),
             Object::Mine { x, y, subtype: 1 } => Some((*x, y + 2)),
@@ -310,7 +364,7 @@ impl From<&ObjectCell> for char {
 
 impl Object {
     /// Calculates the fields occupied by this object
-    pub fn get_cells(&self, index: usize) -> Vec<(Coord, ObjectCell)> {
+    pub fn get_cells(&self, index: usize) -> Vec<(Point, ObjectCell)> {
         use Object::*;
         use ObjectCell::*;
 
@@ -322,8 +376,8 @@ impl Object {
                 height,
             } => {
                 let mut cells = Vec::new();
-                for px in x..(x + width as i32) {
-                    for py in y..(y + height as i32) {
+                for px in x..(x + width as Coord) {
+                    for py in y..(y + height as Coord) {
                         cells.push((
                             (px, py),
                             Inner {
@@ -343,12 +397,12 @@ impl Object {
                 subtype,
             } => {
                 let mut cells = Vec::with_capacity(25);
-                for px in x..(x + width as i32) {
-                    for py in y..(y + height as i32) {
+                for px in x..(x + width as Coord) {
+                    for py in y..(y + height as Coord) {
                         if px == x
-                            || px == (x + width as i32 - 1)
+                            || px == (x + width as Coord - 1)
                             || py == y
-                            || py == (y + height as i32 - 1)
+                            || py == (y + height as Coord - 1)
                         {
                             cells.push((
                                 (px, py),
@@ -643,7 +697,7 @@ impl Object {
 
                 points
                     .into_iter()
-                    .map(|((dx, dy), cell)| (((x as i32 + dx), (y as i32 + dy)), cell))
+                    .map(|((dx, dy), cell)| (((x as Coord + dx), (y as Coord + dy)), cell))
                     .collect()
             }
             Conveyor { x, y, subtype } => {
@@ -914,17 +968,8 @@ impl From<solution::Object> for Object {
             subtype,
             x,
             y,
-            width,
-            height,
         } = obj;
         match kind.as_str() {
-            "deposit" => Object::Deposit {
-                x,
-                y,
-                width: width.unwrap(),
-                height: height.unwrap(),
-                subtype,
-            },
             "mine" => Object::Mine { x, y, subtype },
             "conveyor" => Object::Conveyor { x, y, subtype },
             "combiner" => Object::Combiner { x, y, subtype },

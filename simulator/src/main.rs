@@ -60,7 +60,9 @@ fn simulate(task: &Task, map: &mut Map) -> u32 {
         .iter()
         .enumerate()
         .filter_map(|(index, obj)| match obj.object {
-            Object::Deposit { width, height, .. } => Some((index, width * height * 5)),
+            Object::Deposit { width, height, .. } => {
+                Some((index, width as u32 * height as u32 * 5))
+            }
             _ => None,
         })
         .collect();
