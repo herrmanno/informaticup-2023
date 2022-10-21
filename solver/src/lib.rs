@@ -1,7 +1,8 @@
 mod path;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap, HashSet},
     rc::Rc,
 };
 
@@ -19,17 +20,32 @@ use rand::{
 use simulator::{simulate, SimulatorResult};
 
 /// Number of whole iterations
-const NUM_ITERATIONS: u32 = 500;
+const NUM_ITERATIONS: u32 = 50;
 
 /// Number of times a factory location is tried.
 /// If no location can be found a whole new iteration starts
 const NUM_MAX_FACTORY_PLACEMENTS: u32 = 100;
 
 /// Number of pre-calculated paths per factory (position) and resource type
-const NUM_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 100;
+const NUM_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 50;
 
 /// Number of path combinations to try during one iteration
-const NUM_PATH_COMBINING_ITERATIONS: u32 = 1000;
+const NUM_PATH_COMBINING_ITERATIONS: u32 = 10_000;
+
+macro_rules! debug {
+    ($str: expr) => {
+        #[cfg(debug_assertions)]
+        {
+            println!($str)
+        }
+    };
+    ($str: expr, $($rest: expr),+) => {
+        #[cfg(debug_assertions)]
+        {
+            println!($str, $($rest),+)
+        }
+    };
+}
 
 pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
     // prepare helper state that is useful for remaining algorithm
@@ -127,7 +143,9 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
     let mut best_solution: Option<(SimulatorResult, Map)> = None;
 
-    'iterate: for _ in 0..NUM_ITERATIONS {
+    'iterate: for n_iteration in 0..NUM_ITERATIONS {
+        debug!("Starting iteration #{}", n_iteration);
+
         let mut map = original_map.clone();
 
         // place factories
@@ -162,8 +180,12 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                 }
             }
 
+            // TODO: disallow already set factories
             continue 'iterate;
         }
+
+        debug!("Factories placed");
+        debug!("{}", map);
 
         // construct factory -> deposit paths
 
@@ -195,8 +217,16 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                     NUM_PATHS_PER_FACTORY_AND_RESOURCE,
                     factory,
                     resource_index,
+                    &deposits_by_type[&(resource_index as u8)],
                     &map,
                     &mut rng,
+                );
+
+                debug!(
+                    "Found {} paths from factory {} to deposit(s) {}",
+                    shortest_paths.len(),
+                    subtype,
+                    resource_index
                 );
 
                 if !shortest_paths.is_empty() {
@@ -233,7 +263,9 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
         // chose path combinations
 
-        'combining_paths: for _ in 0..NUM_PATH_COMBINING_ITERATIONS {
+        'combining_paths: for n_combining_paths in 0..NUM_PATH_COMBINING_ITERATIONS {
+            let mut work_map = map.clone();
+
             // TODO: shuffle factory_indices
             for &factory_id in factory_ids.iter() {
                 let factory = map.get_object(factory_id);
@@ -249,23 +281,28 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                         )
                     });
 
-                // TODO: sort by: distance to deposit (start with furthest) OR importance of resource type
+                // TODO: sort by: distance to deposit (start with furthest) OR importance of resource type OR shuffle
                 for (resource_index, &amount) in product.resources.iter().enumerate() {
                     if amount == 0 {
                         continue;
                     }
 
-                    let shortest_paths =
+                    // FIXME: try to find a path, that builds upon an already choosen path from
+                    // a previous iteration (but belongs to same factory!)
+
+                    // TODO: choose with probability ~ 1 / path_length
+                    let choosen_path =
                         &paths_from_factory_to_resource[&(subtype, resource_index as Subtype)];
                     // TODO: pick better paths with higher probability
-                    let path = &shortest_paths[rng.gen_range(0..shortest_paths.len())];
+                    let path = &choosen_path[rng.gen_range(0..choosen_path.len())];
 
-                    if map.try_insert_objects(path.into()).is_err() {
+                    if work_map.try_insert_objects(path.into()).is_err() {
                         continue 'combining_paths;
                     }
                 }
             }
 
+            map = work_map;
             break 'combining_paths;
         }
 
@@ -282,6 +319,8 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                 Some((result, best_map))
             }
         } else {
+            println!("{:?}", map_score);
+            println!("{}", map);
             Some((map_score, map))
         };
     }
@@ -399,21 +438,49 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
     num_paths: u32,
     factory: &Object,
     resource_index: usize,
+    deposits: &[Object],
     map: &Map,
     rng: &mut R,
 ) -> Vec<Path> {
     let mut i = 0;
+    // Manhattan distance from corner to corner on a 100x100 map
+    let deposit_centers = deposits
+        .iter()
+        .map(|object| {
+            let (x, y) = object.coords();
+            let width = object.width().unwrap() as Coord;
+            let height = object.height().unwrap() as Coord;
+            (x + width / 2, y + height / 2)
+        })
+        .collect::<Vec<Point>>();
+
+    let min_distance_to_deposits = |points: &[Point]| {
+        points
+            .iter()
+            .map(|ingress| {
+                deposit_centers
+                    .iter()
+                    .map(|&(x, y)| {
+                        (x - ingress.0).unsigned_abs() as u32
+                            + (y - ingress.1).unsigned_abs() as u32
+                    })
+                    .min()
+                    .unwrap()
+            })
+            .min()
+            .unwrap()
+    };
     let mut paths = Vec::with_capacity(num_paths as usize);
     let mut paths_so_far: HashSet<PathID> = HashSet::new();
-    let mut queue: VecDeque<Rc<Path>> = VecDeque::new();
+    let mut queue: BinaryHeap<Reverse<(u32, u32, Rc<Path>)>> = BinaryHeap::new();
 
-    let mut ingresses = factory.ingresses();
-    ingresses.shuffle(rng);
-    let path = Path::from_starting_points(ingresses);
-    queue.push_front(Rc::new(path));
+    for ingress in factory.ingresses() {
+        let path = Path::from_starting_points(vec![ingress]);
+        let distance = min_distance_to_deposits(&[ingress]);
+        queue.push(Reverse((distance, 0, Rc::new(path))))
+    }
 
-    // TODO: sort queue by current distance to possible target
-    'bfs: while let Some(path) = queue.pop_front() {
+    'bfs: while let Some(Reverse((_, path_length, path))) = queue.pop() {
         for (x, y) in path.heads() {
             /*  LOGIC
                 1. try if target is reached if a mine is placed
@@ -427,7 +494,7 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
                 .filter(|(x, y)| map.get_cell(*x, *y).is_none());
 
             for (nx, ny) in free_neighbours {
-                for mine_subtype in 2..=3 {
+                for mine_subtype in 0..=3 {
                     let mine = Object::mine_with_subtype_and_exgress_at(mine_subtype, (nx, ny));
                     let mine_ingress = mine.ingress().unwrap();
                     let mine_reaches_deposit = neighbours(mine_ingress.0, mine_ingress.1)
@@ -466,23 +533,31 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
                 for conveyor_subtype in (0..=7).rev() {
                     let conveyor =
                         Object::conveyor_with_subtype_and_exgress_at(conveyor_subtype, (nx, ny));
+                    let ingress = conveyor.ingress().unwrap();
                     match map
                         .can_insert_object(&conveyor)
                         .and_then(|_| Path::append(conveyor, &path))
                     {
-                        Ok(path) => queue.push_back(Rc::new(path)),
+                        Ok(new_path) => {
+                            let distance = min_distance_to_deposits(&[ingress]);
+                            queue.push(Reverse((distance, path_length, Rc::new(new_path))));
+                        }
                         Err(_e) => {}
                     }
                 }
 
-                for combiner_subtype in (0..=3).rev() {
+                for combiner_subtype in 0..=3 {
                     let combiner =
                         Object::combiner_with_subtype_and_exgress_at(combiner_subtype, (nx, ny));
+                    let ingresses = combiner.ingresses();
                     match map
                         .can_insert_object(&combiner)
                         .and_then(|_| Path::append(combiner, &path))
                     {
-                        Ok(path) => queue.push_back(Rc::new(path)),
+                        Ok(new_path) => {
+                            let distance = min_distance_to_deposits(&ingresses);
+                            queue.push(Reverse((distance, path_length, Rc::new(new_path))));
+                        }
                         Err(_e) => {}
                     }
                 }
