@@ -61,13 +61,20 @@ impl Path {
         }
     }
 
-    /// Returns all ingresses along the path
+    /// Returns all ingresses along the path, except start and final ingresses
+    ///
+    /// Effectively returns all ingresses where other paths can start from, where
+    /// - a _final_ ingress belongs to a mine - no path can _start on a mine_
+    /// - a _start_ ingress belongs to a factory - if you want to build paths from
+    ///   a factory you should know its ingresses
     pub fn all_ingresses(&self) -> Vec<Point> {
         let mut ingresses = vec![];
 
         for object in self.objects() {
-            for ingress in object.ingresses() {
-                ingresses.push(ingress);
+            if object.kind() != ObjectType::Mine {
+                for ingress in object.ingresses() {
+                    ingresses.push(ingress);
+                }
             }
         }
 

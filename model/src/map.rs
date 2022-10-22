@@ -44,6 +44,14 @@ impl Map {
         self.map.get(&(x, y))
     }
 
+    pub fn is_empty_at(&self, x: Coord, y: Coord) -> bool {
+        x >= 0
+            && y >= 0
+            && x < self.width as Coord
+            && y < self.width as Coord
+            && self.get_cell(x, y).is_none()
+    }
+
     pub fn width(&self) -> u8 {
         self.width as u8
     }

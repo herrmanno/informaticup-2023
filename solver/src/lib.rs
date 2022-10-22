@@ -2,7 +2,7 @@ mod path;
 
 use std::{
     cmp::Reverse,
-    collections::{BinaryHeap, HashMap, HashSet},
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
     rc::Rc,
 };
 
@@ -30,7 +30,10 @@ const NUM_MAX_FACTORY_PLACEMENTS: u32 = 100;
 const NUM_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 50;
 
 /// Number of path combinations to try during one iteration
-const NUM_PATH_COMBINING_ITERATIONS: u32 = 10_000;
+const NUM_PATH_COMBINING_ITERATIONS: u32 = 10;
+
+/// Max number of BFS states to process when finding a path
+const NUM_MAX_PATH_FINDING_STEPS: u32 = 100_000;
 
 macro_rules! debug {
     ($str: expr) => {
@@ -86,9 +89,8 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
     };
 
     let possible_factory_locations = find_possible_factory_positions(original_map);
-    // let mut available_factory_locations = possible_factory_locations;
 
-    let mut best_factory_positions_by_factory_subtype: HashMap<
+    let best_factory_positions_by_factory_subtype: HashMap<
         Subtype,
         (WeightedIndex<f32>, Vec<Point>),
     > = task
@@ -105,7 +107,7 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
     let mut products: Vec<Product> = task.products.to_vec();
 
-    println!("{}", original_map);
+    debug!("{}", original_map);
 
     /*
        IDEA
@@ -143,7 +145,7 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
     let mut best_solution: Option<(SimulatorResult, Map)> = None;
 
-    'iterate: for n_iteration in 0..NUM_ITERATIONS {
+    'iterate: for n_iteration in 1..=NUM_ITERATIONS {
         debug!("Starting iteration #{}", n_iteration);
 
         let mut map = original_map.clone();
@@ -189,84 +191,15 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
 
         // construct factory -> deposit paths
 
-        let mut paths_from_factory_to_resource: HashMap<(Subtype, Subtype), Vec<Path>> =
-            HashMap::new();
-
-        // construct shortest paths from factories to deposits
-
-        for &factory_id in factory_ids.iter() {
-            let factory = map.get_object(factory_id);
-            let subtype = factory.subtype().unwrap();
-            let product = task // TODO: use lookup table
-                .products
-                .iter()
-                .find(|product| product.subtype == subtype)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "No product found for subtype {} but a factory is present",
-                        subtype
-                    )
-                });
-
-            for (resource_index, &amount) in product.resources.iter().enumerate() {
-                if amount == 0 {
-                    continue;
-                }
-
-                let shortest_paths = build_shortest_paths_from_factory_to_deposit(
-                    NUM_PATHS_PER_FACTORY_AND_RESOURCE,
-                    factory,
-                    resource_index,
-                    &deposits_by_type[&(resource_index as u8)],
-                    &map,
-                    &mut rng,
-                );
-
-                debug!(
-                    "Found {} paths from factory {} to deposit(s) {}",
-                    shortest_paths.len(),
-                    subtype,
-                    resource_index
-                );
-
-                if !shortest_paths.is_empty() {
-                    paths_from_factory_to_resource
-                        .insert((subtype, resource_index as Subtype), shortest_paths);
-                } else {
-                    // No path from factory to resource could be found -> forbid factory position
-
-                    let current_factory_position = factory.coords();
-                    let factory_positions = best_factory_positions_by_factory_subtype
-                        .get_mut(&subtype)
-                        .unwrap();
-                    let current_factory_position_index = factory_positions
-                        .1
-                        .iter()
-                        .enumerate()
-                        .find_map(|(index, position)| {
-                            if *position == current_factory_position {
-                                Some(index)
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap();
-
-                    factory_positions
-                        .0
-                        .update_weights(&vec![(current_factory_position_index, &0f32)][..])
-                        .unwrap();
-                    continue 'iterate;
-                }
-            }
-        }
-
         // chose path combinations
 
         'combining_paths: for n_combining_paths in 0..NUM_PATH_COMBINING_ITERATIONS {
+            debug!("Combining paths #{}", n_combining_paths);
+
             let mut work_map = map.clone();
 
-            // TODO: shuffle factory_indices
+            factory_ids.shuffle(&mut rng);
+
             for &factory_id in factory_ids.iter() {
                 let factory = map.get_object(factory_id);
                 let subtype = factory.subtype().unwrap();
@@ -281,23 +214,130 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
                         )
                     });
 
-                // TODO: sort by: distance to deposit (start with furthest) OR importance of resource type OR shuffle
-                for (resource_index, &amount) in product.resources.iter().enumerate() {
-                    if amount == 0 {
-                        continue;
-                    }
+                let mut resources: VecDeque<Subtype> = product
+                    .resources
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, amount)| {
+                        if *amount > 0 {
+                            Some(index as Subtype)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
-                    // FIXME: try to find a path, that builds upon an already choosen path from
-                    // a previous iteration (but belongs to same factory!)
+                resources.make_contiguous().shuffle(&mut rng);
 
-                    // TODO: choose with probability ~ 1 / path_length
-                    let choosen_path =
-                        &paths_from_factory_to_resource[&(subtype, resource_index as Subtype)];
-                    // TODO: pick better paths with higher probability
-                    let path = &choosen_path[rng.gen_range(0..choosen_path.len())];
+                let mut processed_resources: VecDeque<Subtype> = VecDeque::new();
 
-                    if work_map.try_insert_objects(path.into()).is_err() {
-                        continue 'combining_paths;
+                let mut paths_by_resource: HashMap<Subtype, Vec<Path>> = resources
+                    .iter()
+                    .map(|resource| (*resource, vec![]))
+                    .collect();
+
+                let mut built_paths_by_resource: HashMap<Subtype, (usize, Path)> = HashMap::new();
+
+                'path_building: while let Some(resource) = resources.pop_front() {
+                    debug!(
+                        "Try to find path from factory {} to resource {}",
+                        factory.subtype().unwrap(),
+                        resource
+                    );
+
+                    /* LOGIC
+                      1a. If no path to resource built yet:
+                           - Built and store paths for resource, based on already built paths
+                           - Choose first valid of such paths
+                      1b. Else:
+                           - Choose the next valid path from prebuilt paths
+                      2. Build and store the choosen path
+                      3a. If no path can be choosen:
+                           - push back resource and also push top of 'done' stack
+                      3b. Else:
+                           - pop resource and push it onto 'done' stack
+                    */
+
+                    let available_paths = paths_by_resource
+                        .entry(resource)
+                        .and_modify(|paths| {
+                            if paths.is_empty() {
+                                let start_points = {
+                                    let mut start_points = factory.ingresses().to_vec();
+                                    for (_, path) in built_paths_by_resource.values() {
+                                        for ingress in path.all_ingresses() {
+                                            start_points.push(ingress);
+                                        }
+                                    }
+                                    start_points
+                                };
+                                *paths = build_shortest_paths_from_factory_to_deposit(
+                                    NUM_PATHS_PER_FACTORY_AND_RESOURCE,
+                                    &start_points,
+                                    resource as usize,
+                                    &deposits_by_type[&resource],
+                                    &map,
+                                    &mut rng,
+                                );
+                            }
+                        })
+                        .or_default();
+
+                    if let Some((i, _)) = built_paths_by_resource.get(&resource) {
+                        let mut i = i + 1;
+                        if i >= available_paths.len() {
+                            // backtrack
+                            available_paths.clear();
+                            built_paths_by_resource.remove(&resource);
+
+                            resources.push_front(resource);
+                            if let Some(prior_resource) = processed_resources.pop_back() {
+                                resources.push_front(prior_resource);
+                            } else {
+                                continue 'combining_paths;
+                            }
+                        } else {
+                            while i < available_paths.len() {
+                                if work_map
+                                    .try_insert_objects(
+                                        available_paths[i].objects().cloned().collect(),
+                                    )
+                                    .is_ok()
+                                {
+                                    built_paths_by_resource
+                                        .insert(resource, (i, available_paths[0].clone()));
+                                    debug!("{}", work_map);
+                                    processed_resources.push_back(resource);
+                                    continue 'path_building;
+                                }
+                                i += 1;
+                            }
+                        }
+                    } else {
+                        let mut i = 0;
+                        while i < available_paths.len() {
+                            if work_map
+                                .try_insert_objects(available_paths[i].objects().cloned().collect())
+                                .is_ok()
+                            {
+                                built_paths_by_resource
+                                    .insert(resource, (i, available_paths[0].clone()));
+                                debug!("{}", work_map);
+                                processed_resources.push_back(resource);
+                                continue 'path_building;
+                            }
+                            i += 1;
+                        }
+
+                        // backtrack
+                        available_paths.clear();
+
+                        resources.push_front(resource);
+                        if let Some(prior_resource) = processed_resources.pop_back() {
+                            resources.push_front(prior_resource);
+                        } else {
+                            continue 'combining_paths;
+                        }
                     }
                 }
             }
@@ -309,6 +349,11 @@ pub fn solve<'a, 'b>(task: &'a Task, original_map: &'b mut Map) -> &'b Map {
         // FIXME: build additional path in descending product priority
 
         let map_score = simulate(task, &map, true);
+
+        if map_score.score > 0 {
+            println!("{:?}", map_score);
+            println!("{}", map);
+        }
 
         best_solution = if let Some((result, best_map)) = best_solution {
             if map_score > result {
@@ -433,54 +478,78 @@ fn sort_to_best_positions_by_deposits(
     (weights, positions)
 }
 
+/* TODO: Abort search if no great improvement can be found over some time
+
+    Example:
+    00000000001111111111222222222
+    01234567890123456789012345678
+    00 --------XXXXXXXXXXXXX--------
+    01 -000000-XXXX+++++XXXX-222222-
+    02 -000000-XXXX+111+XXXX-222222-
+    03 -000000-XXXX+111+XXXX-222222-
+    04 -000000-XXXX+111+XXXX-222222-
+    05 -000000-XXXX+++++XXXX-222222-
+    06 -000000-XXXX.....XXXX-222222-
+    07 -000000-XXXX.....XXXX-222222-
+    08 --------XXXX.....XXXX--------
+    09 ........XXXX.....XXXX........
+    10 ........XXXX..X..XXXX........
+    11 ..............X..............
+    12 ........XXXX..X..XXXX........
+    13 ........XXXX+++++XXXX........
+    14 --------XXXX+000+XXXX--------
+    15 -111111-XXXX+000+XXXX-333333-
+    16 -111111-XXXX+000+XXXX-333333-
+    17 -111111-XXXX+++++XXXX-333333-
+    18 -111111-XXXX.....XXXX-333333-
+    19 -111111-XXXX.....XXXX-333333-
+    20 -111111-XXXX.....XXXX-333333-
+    21 -111111-XXXX.....XXXX-333333-
+    22 --------XXXXXXXXXXXXX--------
+
+    When trying fo find a path from factory 0 to deposit 0 or 1, there is no valid path.
+    Nevertheless, many path in the direction of deposit 2/3 will be tried.
+
+*/
 /// Constructs the shortest path from a factory to a deposit of subtype `resource_index`
 fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
     num_paths: u32,
-    factory: &Object,
+    start_points: &[Point],
     resource_index: usize,
     deposits: &[Object],
     map: &Map,
-    rng: &mut R,
+    _rng: &mut R, //TODO: use (at least a little bit) of randomness when finding paths
 ) -> Vec<Path> {
-    let mut i = 0;
-    // Manhattan distance from corner to corner on a 100x100 map
-    let deposit_centers = deposits
-        .iter()
-        .map(|object| {
-            let (x, y) = object.coords();
-            let width = object.width().unwrap() as Coord;
-            let height = object.height().unwrap() as Coord;
-            (x + width / 2, y + height / 2)
-        })
-        .collect::<Vec<Point>>();
+    let mut num_found_paths = 0;
+
+    let distances_to_deposits = build_distance_map_from_deposits(map, deposits);
 
     let min_distance_to_deposits = |points: &[Point]| {
         points
             .iter()
-            .map(|ingress| {
-                deposit_centers
-                    .iter()
-                    .map(|&(x, y)| {
-                        (x - ingress.0).unsigned_abs() as u32
-                            + (y - ingress.1).unsigned_abs() as u32
-                    })
-                    .min()
-                    .unwrap()
-            })
+            .filter_map(|point| distances_to_deposits.get(point))
             .min()
-            .unwrap()
+            .cloned()
+            .unwrap_or(u32::MAX)
     };
+
     let mut paths = Vec::with_capacity(num_paths as usize);
     let mut paths_so_far: HashSet<PathID> = HashSet::new();
     let mut queue: BinaryHeap<Reverse<(u32, u32, Rc<Path>)>> = BinaryHeap::new();
 
-    for ingress in factory.ingresses() {
+    for &ingress in start_points {
         let path = Path::from_starting_points(vec![ingress]);
         let distance = min_distance_to_deposits(&[ingress]);
         queue.push(Reverse((distance, 0, Rc::new(path))))
     }
 
+    let mut num_iterations = 0;
     'bfs: while let Some(Reverse((_, path_length, path))) = queue.pop() {
+        if num_iterations >= NUM_MAX_PATH_FINDING_STEPS {
+            break 'bfs;
+        }
+        num_iterations += 1;
+
         for (x, y) in path.heads() {
             /*  LOGIC
                 1. try if target is reached if a mine is placed
@@ -518,10 +587,10 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
                                 if !paths_so_far.contains(&new_path_id) {
                                     paths_so_far.insert(new_path_id);
                                     paths.push(new_path);
-                                    i += 1;
+                                    num_found_paths += 1;
                                 }
 
-                                if i == num_paths {
+                                if num_found_paths == num_paths {
                                     break 'bfs;
                                 }
                             }
@@ -567,4 +636,41 @@ fn build_shortest_paths_from_factory_to_deposit<R: Rng + ?Sized>(
 
     paths.shrink_to_fit();
     paths
+}
+
+/// Create a map of shortest distances to given deposits from all reachable points on map
+fn build_distance_map_from_deposits(map: &Map, deposits: &[Object]) -> HashMap<Point, u32> {
+    let mut distances: HashMap<Point, u32> = HashMap::new();
+    let mut queue: VecDeque<(u32, Point)> = VecDeque::new();
+    let mut visited: HashSet<Point> = HashSet::new();
+
+    for deposit in deposits {
+        for exgress in deposit.exgresses() {
+            for position in neighbours(exgress.0, exgress.1) {
+                if !visited.contains(&position) {
+                    visited.insert(position);
+                    if map.is_empty_at(position.0, position.1) {
+                        queue.push_back((0, position));
+                    }
+                }
+            }
+        }
+    }
+
+    while let Some((distance, (x, y))) = queue.pop_front() {
+        distances
+            .entry((x, y))
+            .and_modify(|old_distance| *old_distance = (*old_distance).min(distance))
+            .or_insert(distance);
+        for position in neighbours(x, y) {
+            if !visited.contains(&position) {
+                visited.insert(position);
+                if map.is_empty_at(position.0, position.1) {
+                    queue.push_back((distance + 1, position));
+                }
+            }
+        }
+    }
+
+    distances
 }
