@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json;
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Task {
     pub width: u8,
     pub height: u8,
@@ -19,7 +19,7 @@ impl Task {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Object {
     #[serde(rename = "type")]
     pub kind: String,
@@ -30,7 +30,7 @@ pub struct Object {
     pub height: u8,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Product {
     #[serde(rename = "type")]
     pub kind: String,

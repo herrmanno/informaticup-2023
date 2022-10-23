@@ -1,7 +1,8 @@
 use clap::Parser;
 use cli::Args;
+use common::{debug, release};
 use model::{cli::CliFile, map::Map, object::Object, solution::Solution, task::Task};
-use solver::solve;
+use solver::solve::solve;
 
 mod cli;
 
@@ -29,5 +30,17 @@ fn main() {
         task.objects.iter().cloned().map(Object::from).collect(),
     );
 
-    solve(&task, &mut map);
+    if let Some(solution) = solve(&task, &mut map) {
+        debug!("{:?}", solution.0);
+        debug!(
+            "{}",
+            CliFile::new(task.clone(), Solution::from(&solution.1))
+                .to_json_string()
+                .unwrap()
+        );
+        release!("{}", Solution::from(&solution.1).to_json_string().unwrap());
+    } else {
+        debug!("No solution found");
+        release!("{}", Solution::default().to_json_string().unwrap());
+    }
 }

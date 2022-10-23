@@ -35,6 +35,13 @@ impl Path {
         }
     }
 
+    pub fn append_unchecked(object: Object, tail: &Rc<Path>) -> Path {
+        Path::Segment {
+            object,
+            tail: Rc::clone(tail),
+        }
+    }
+
     /// Calculates a hash-like id for this path, based on its objects
     pub fn id(&self) -> PathID {
         let mut a = 0u64;

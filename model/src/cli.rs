@@ -1,12 +1,19 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json;
 
 use crate::{solution::Solution, task::Task};
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct CliFile(Vec<CliFileEntry>);
 
 impl CliFile {
+    pub fn new(task: Task, solution: Solution) -> Self {
+        CliFile(vec![
+            CliFileEntry::TaskEntry(task),
+            CliFileEntry::SolutionEntry(solution),
+        ])
+    }
+
     pub fn from_json_file(path: &str) -> Result<(Task, Solution), Box<dyn std::error::Error>> {
         let s = std::fs::read_to_string(path).unwrap();
         let CliFile(entries) = serde_json::from_str(&s)?;
@@ -27,9 +34,13 @@ impl CliFile {
 
         Ok((task.clone(), solution.clone()))
     }
+
+    pub fn to_json_string(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 #[serde(untagged)]
 enum CliFileEntry {
     TaskEntry(Task),

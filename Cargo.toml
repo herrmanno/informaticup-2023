@@ -1,2 +1,2 @@
 [workspace]
-members = ["printer", "simulator", "solver", "model"]
+members = ["common", "printer", "simulator", "solver", "model"]

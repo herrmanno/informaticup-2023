@@ -78,6 +78,25 @@ impl Map {
         Ok(())
     }
 
+    pub fn insert_object_unchecked(&mut self, object: Object) -> Result<(), String> {
+        if self.objects.contains_key(&object.id()) {
+            return Ok(());
+        }
+
+        let result = self.can_insert_object(&object);
+
+        let index = self.objects.len();
+
+        let cells = object.get_cells(index);
+        for ((x, y), cell) in cells {
+            self.map.insert((x, y), cell);
+        }
+
+        self.objects.insert(object.id(), object);
+
+        result
+    }
+
     pub fn try_insert_objects(&mut self, objects: Vec<Object>) -> Result<(), String> {
         let mut inserted = 0;
         for object in objects.iter() {
@@ -109,6 +128,30 @@ impl Map {
         }
 
         Ok(())
+    }
+
+    pub fn force_remove_object(&mut self, object: &Object) {
+        if self.objects.remove(&object.id()).is_some() {
+            for (point, _) in object.get_cells(0) {
+                self.map.remove(&point);
+            }
+        }
+    }
+
+    pub fn can_insert_objects(&mut self, objects: Vec<&Object>) -> Result<(), String> {
+        let mut result = Ok(());
+        for object in objects.iter() {
+            if let Err(e) = self.insert_object((*object).clone()) {
+                result = Err(e);
+                break;
+            }
+        }
+
+        for object in objects {
+            self.force_remove_object(object);
+        }
+
+        result
     }
 
     pub fn can_insert_object(&self, object: &Object) -> Result<(), String> {
@@ -215,7 +258,7 @@ impl Map {
 
                 if num_neighbouring_ingresses >= 1 {
                     return Err(format!(
-                        "Cannot place {:?} because its exgress touches an ingress that is already connected to another exgress",
+                        "Cannot place {:?} because its ingress touches an exgress that is already connected to another ingress",
                         object,
                     ));
                 }

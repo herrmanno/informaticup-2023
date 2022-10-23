@@ -322,14 +322,14 @@ impl Object {
                 height,
                 ..
             } => {
-                let mut exgresses = Vec::with_capacity(18);
+                let mut exgresses = Vec::new();
                 for dx in (*x)..(*x + *width as Coord) {
                     exgresses.push((dx, *y));
-                    exgresses.push((dx, *y + 4));
+                    exgresses.push((dx, *y + (*height as Coord - 1)));
                 }
                 for dy in (*y + 1)..(*y + *height as Coord) {
                     exgresses.push((*x, dy));
-                    exgresses.push((*x + 4, dy));
+                    exgresses.push((*x + (*width as Coord - 1), dy));
                 }
                 exgresses
             }
@@ -346,6 +346,19 @@ pub enum ObjectType {
     Factory,
     Conveyor,
     Combiner,
+}
+
+impl From<ObjectType> for String {
+    fn from(kind: ObjectType) -> Self {
+        match kind {
+            ObjectType::Obstacle => "obstacle".to_string(),
+            ObjectType::Deposit => "deposit".to_string(),
+            ObjectType::Mine => "mine".to_string(),
+            ObjectType::Factory => "factory".to_string(),
+            ObjectType::Conveyor => "conveyor".to_string(),
+            ObjectType::Combiner => "combiner".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
