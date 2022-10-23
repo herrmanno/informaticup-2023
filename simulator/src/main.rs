@@ -45,6 +45,12 @@ mod tests {
     }
 
     #[test]
+    fn test_conveyor_branch() {
+        let result = test_simulation!("./inputs/conveyor_branch.json");
+        assert_eq!(10, result.score);
+    }
+
+    #[test]
     fn test_simulation_1() {
         let result = test_simulation!("./inputs/test1.json");
         assert_eq!(40, result.score);
@@ -54,5 +60,11 @@ mod tests {
     fn test_simulation_2() {
         let result = test_simulation!("./inputs/test2.json");
         assert_eq!(162, result.score);
+    }
+
+    #[test]
+    fn test_task_004() {
+        let result = test_simulation!("./inputs/test_task_004.json");
+        assert_eq!(240, result.score);
     }
 }

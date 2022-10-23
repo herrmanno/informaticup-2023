@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use model::{
     coord::neighbours,
@@ -142,10 +142,16 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                 .expect("Invalid deposit: must have subtype")
                 as usize;
 
-            // let mut resources_outgoing = vec![0; 10];
+            let mut visited_cells = HashSet::new();
 
             for (x, y) in deposit.exgresses().iter() {
                 for (nx, ny) in neighbours(*x, *y) {
+                    if visited_cells.contains(&(nx, ny)) {
+                        continue;
+                    }
+
+                    visited_cells.insert((nx, ny));
+
                     if let Some(ObjectCell::Ingress {
                         id: id_receiving, ..
                     }) = map.get_cell(nx, ny)
@@ -154,7 +160,6 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
                         if let Object::Mine { .. } = receiving_object {
                             let amount = resources[deposit_id].min(3);
-                            // resource_distribution[deposit_id][resource_type] += amount;
                             let deposits_resources =
                                 resource_distribution.get_mut(deposit_id).unwrap();
                             deposits_resources[resource_type] += amount;
