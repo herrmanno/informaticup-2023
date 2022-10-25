@@ -31,14 +31,24 @@ fn main() {
     );
 
     if let Some(solution) = solve(&task, &mut map) {
-        debug!("{:?}", solution.0);
-        debug!(
-            "{}",
-            CliFile::new(task.clone(), Solution::from(&solution.1))
-                .to_json_string()
-                .unwrap()
-        );
-        release!("{}", Solution::from(&solution.1).to_json_string().unwrap());
+        if cfg!(debug_assertions) || args.stats {
+            println!("{:?}", solution.0);
+        }
+
+        if args.print {
+            println!("{}", solution.1);
+        }
+
+        if cfg!(debug_assertions) || args.cli_out {
+            println!(
+                "{}",
+                CliFile::new(task.clone(), Solution::from(&solution.1))
+                    .to_json_string()
+                    .unwrap()
+            );
+        } else {
+            println!("{}", Solution::from(&solution.1).to_json_string().unwrap());
+        }
     } else {
         debug!("No solution found");
         release!("{}", Solution::default().to_json_string().unwrap());

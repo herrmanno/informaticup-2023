@@ -15,4 +15,17 @@ pub(crate) struct Args {
         help = "Path to combined task/solution json file (from 'cli' export)"
     )]
     pub cli: Option<String>,
+
+    #[arg(
+        short,
+        long,
+        help = "Print output in CLI format instead of solution format"
+    )]
+    pub cli_out: bool,
+
+    #[arg(short, long, help = "Print additional solution stats")]
+    pub stats: bool,
+
+    #[arg(short, long, help = "Print final result as map")]
+    pub print: bool,
 }

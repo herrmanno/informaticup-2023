@@ -2,6 +2,7 @@ use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap, HashSet, VecDeque},
     rc::Rc,
+    time::{Duration, Instant},
 };
 
 use crate::path::{Path, PathID};
@@ -11,6 +12,13 @@ use model::{
     object::{Object, ObjectCell, ObjectType},
 };
 use rand::{thread_rng, Rng};
+
+/// Max time to search for the next path
+const MAX_SEARCH_TIME_IN_MILLIS: u64 = 2000;
+
+//TODO: investigate if 100 (current value) is large enough for succesful pathfinding on big maps.
+/// Max partial paths to look at without improvement (of distance to target) before search cancellation
+const MAX_STEPS_WITHOUT_IMPROVEMENT: usize = 100;
 
 pub(crate) struct Paths {
     distances_to_deposits: HashMap<Point, u32>,
@@ -79,6 +87,16 @@ impl Default for Paths {
     }
 }
 
+/*
+    TODO: check if using a kind of 'Map(Reference)' as state is faster than using paths.
+
+    Background:
+    On every step the whole path must be inserted into a map to check it is valid. When using
+    a kind of Map, with a partial path already inserted, one must only check the path's new
+    segment for validity.
+
+*/
+
 impl Iterator for Paths {
     type Item = Path;
 
@@ -132,10 +150,34 @@ impl Iterator for Paths {
                 .min()
                 .cloned()
                 .unwrap_or(u32::MAX)
-                + rng.gen_range(0..=10) // TODO: use randomness in a smarter way
+                .saturating_add(rng.gen_range(0..=10)) // TODO: use randomness in a smarter way
         };
 
+        let timer = Instant::now();
+
+        let mut i: usize = 0;
+        let mut min_distance: Option<(u32, usize)> = None;
         while let Some(Reverse((path_distance, path_length, path))) = queue.pop() {
+            i += 1;
+
+            if timer.elapsed() > Duration::from_millis(MAX_SEARCH_TIME_IN_MILLIS) {
+                return None;
+            }
+
+            min_distance = match min_distance {
+                None => Some((path_distance, i)),
+                Some((dist, _)) if path_distance < dist => Some((path_distance, i)),
+                Some((_, j)) if j - i < MAX_STEPS_WITHOUT_IMPROVEMENT => min_distance,
+                _ => {
+                    return None;
+                }
+            };
+
+            // TODO: smarter way to kick paths, that can not reach target
+            if path_distance > 200 {
+                continue;
+            }
+
             for (x, y) in path.heads() {
                 /*  LOGIC
                     1. try if target is reached if a mine is placed
