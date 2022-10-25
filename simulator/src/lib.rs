@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet, VecDeque},
+};
 
 use model::{
     coord::neighbours,
@@ -62,9 +65,9 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
         .collect();
 
     // Map from objectID to amount of resources that object currently holds
-    let mut resource_distribution: HashMap<ObjectID, Vec<u32>> = map
+    let mut resource_distribution: HashMap<ObjectID, RefCell<Vec<u32>>> = map
         .get_objects()
-        .map(|obj| (obj.id(), vec![0; 10]))
+        .map(|obj| (obj.id(), RefCell::new(vec![0; 8])))
         .collect();
 
     let objects: HashMap<ObjectID, &Object> =
@@ -88,30 +91,38 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                 continue;
             }
 
-            let mut resources_incoming = vec![0; 10];
+            let mut resources_incoming = vec![0; 8];
 
             for (x, y) in object.ingresses().iter() {
                 for (nx, ny) in neighbours(*x, *y) {
                     if let Some(ObjectCell::Exgress {
-                        id: id_incoming, ..
+                        id: id_outgoing, ..
                     }) = map.get_cell(nx, ny)
                     {
                         // move resources
-                        let incoming_resources = resource_distribution[id_incoming].clone();
                         for (resource_index, value) in resource_distribution
-                            .get_mut(&object_id)
+                            .get(&object_id)
                             .unwrap()
+                            .borrow_mut()
                             .iter_mut()
                             .enumerate()
                         {
-                            *value += incoming_resources[resource_index];
-                            resources_incoming[resource_index] +=
-                                incoming_resources[resource_index];
+                            let outgoing_resource =
+                                &mut resource_distribution.get(id_outgoing).unwrap().borrow_mut()
+                                    [resource_index];
+
+                            let amount = match object {
+                                Object::Mine { .. } => (*outgoing_resource).min(3),
+                                _ => *outgoing_resource,
+                            };
+
+                            *value += amount;
+                            *outgoing_resource -= amount;
+                            resources_incoming[resource_index] += amount;
                         }
-                        resource_distribution.insert(*id_incoming, vec![0; 10]);
 
                         // enqueue next object
-                        queue.push_back((*id_incoming, objects[id_incoming]));
+                        queue.push_back((*id_outgoing, objects[id_outgoing]));
                     }
                 }
             }
@@ -120,12 +131,12 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
             if resources_incoming.iter().any(|value| *value > 0) && !quiet {
                 println!(
-                    "{} (start): ({},{}) accepts [{}], holds [{}]",
+                    "{} (start): ({}, {}) accepts [{}], holds [{}]",
                     turn,
                     x,
                     y,
                     pretty_format_resources(&resources_incoming),
-                    pretty_format_resources(&resource_distribution[&object_id]),
+                    pretty_format_resources(&resource_distribution[&object_id].borrow()),
                 );
             }
         }
@@ -162,7 +173,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                             let amount = resources[deposit_id].min(3);
                             let deposits_resources =
                                 resource_distribution.get_mut(deposit_id).unwrap();
-                            deposits_resources[resource_type] += amount;
+                            deposits_resources.borrow_mut()[resource_type] += amount;
 
                             if let Some(r) = resources.get_mut(deposit_id) {
                                 *r -= amount;
@@ -172,14 +183,14 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
                             if amount > 0 && !quiet {
                                 println!(
-                                    "{} (end): ({}, {}) takes [{}:{}], [{}:{}] available",
+                                    "{} (end): ({}, {}) takes [{}x{}], [{}x{}] available",
                                     turn,
                                     coords.0,
                                     coords.1,
-                                    resource_type,
                                     amount,
                                     resource_type,
-                                    resources.get(deposit_id).unwrap()
+                                    resources.get(deposit_id).unwrap(),
+                                    resource_type,
                                 );
                             }
                         }
@@ -198,14 +209,14 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                 if let Some(&product) = products_by_type.get(subtype) {
                     let can_produce = product.resources.iter().enumerate().all(
                         |(resource_index, resource_amount)| {
-                            factory_resources[resource_index] >= *resource_amount
+                            factory_resources.borrow_mut()[resource_index] >= *resource_amount
                         },
                     );
 
                     if can_produce {
                         score += product.points;
                         for (resource_index, amount) in product.resources.iter().enumerate() {
-                            factory_resources[resource_index] -= amount;
+                            factory_resources.borrow_mut()[resource_index] -= amount;
                         }
 
                         let (x, y) = object.coords();
@@ -248,7 +259,7 @@ fn pretty_format_resources(resources: &[u32]) -> String {
         .iter()
         .enumerate()
         .filter(|(_, &value)| value > 0)
-        .map(|(index, value)| format!("{}:{}", index, value))
+        .map(|(index, value)| format!("{}x{}", value, index))
         .reduce(|a, b| format!("{}, {}", a, b))
         .unwrap_or_else(|| "".to_string())
 }
