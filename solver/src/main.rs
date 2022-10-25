@@ -1,7 +1,9 @@
 use clap::Parser;
 use cli::Args;
 use common::{debug, release};
-use model::{cli::CliFile, map::Map, object::Object, solution::Solution, task::Task};
+use model::{
+    cli::CliFile, input::read_input_from_stdin, map::Map, object::Object, solution::Solution,
+};
 use simulator::SimulatorResult;
 use solver::solve::Solver;
 use std::{
@@ -10,25 +12,14 @@ use std::{
     time::Duration,
 };
 
+use crate::cli::OutputFormat;
+
 mod cli;
 
 fn main() {
     let args = Args::parse();
-    let (task, _) = if let Some(cli_path) = args.cli {
-        CliFile::from_json_file(&cli_path).expect("Could not read cli file")
-    } else {
-        let task = if let Some(task_path) = args.task {
-            Task::from_json_file(&task_path).expect("Could not read task file")
-        } else {
-            panic!("Neither 'cli' nor 'task' supplied");
-        };
-        let solution = if let Some(solution_path) = args.solution {
-            Solution::from_json_file(&solution_path).expect("Could not read solution file")
-        } else {
-            Solution::default()
-        };
-        (task, solution)
-    };
+
+    let (task, _) = read_input_from_stdin().unwrap();
 
     let map = Map::new(
         task.width,
@@ -96,7 +87,7 @@ fn main() {
             println!("{}", solution.1);
         }
 
-        if cfg!(debug_assertions) || args.cli_out {
+        if cfg!(debug_assertions) || args.output_format() == OutputFormat::Cli {
             println!(
                 "{}",
                 CliFile::new(task, Solution::from(&solution.1))

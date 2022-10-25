@@ -38,6 +38,26 @@ impl CliFile {
     pub fn to_json_string(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
     }
+
+    pub fn task(&self) -> Option<Task> {
+        self.0
+            .iter()
+            .filter_map(|entry| match entry {
+                CliFileEntry::TaskEntry(task) => Some(task.clone()),
+                _ => None,
+            })
+            .next()
+    }
+
+    pub fn solution(&self) -> Option<Solution> {
+        self.0
+            .iter()
+            .filter_map(|entry| match entry {
+                CliFileEntry::SolutionEntry(solution) => Some(solution.clone()),
+                _ => None,
+            })
+            .next()
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
