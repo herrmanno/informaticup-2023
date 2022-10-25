@@ -14,9 +14,6 @@ use rand::{
 };
 use simulator::{simulate, SimulatorResult};
 
-/// Number of whole iterations
-const NUM_ITERATIONS: u32 = 100;
-
 /// Number of times a factory location is tried.
 /// If no location can be found a whole new iteration starts
 const NUM_MAX_FACTORY_PLACEMENTS: u32 = 100;
@@ -36,405 +33,414 @@ const NUM_PATH_COMBINING_ITERATIONS: u32 = 10;
 /// Max number of BFS states to process when finding a path
 const NUM_MAX_PATH_FINDING_STEPS: u32 = 100_000;
 
-pub fn solve(task: &Task, original_map: &Map) -> Option<(SimulatorResult, Map)> {
-    // prepare helper state that is useful for remaining algorithm
-    let deposits_by_type: HashMap<u8, Vec<Object>> = {
-        let mut deposits: HashMap<u8, Vec<Object>> = HashMap::new();
-        task.objects
-            .iter()
-            .cloned()
-            .map(Object::from)
-            .for_each(|obj| {
-                if let Object::Deposit { subtype, .. } = obj {
-                    deposits.entry(subtype).or_default().push(obj)
-                }
-            });
+pub struct Solver<'a> {
+    task: &'a Task,
+    original_map: &'a Map,
+    deposits_by_type: HashMap<Subtype, Vec<Object>>,
+    deposits_by_product: HashMap<Subtype, Vec<Object>>,
+    products: Vec<Product>,
+    best_factory_positions_by_factory_subtype: HashMap<Subtype, (WeightedIndex<f32>, Vec<Point>)>,
+}
 
-        deposits
-    };
-
-    let deposits_by_product: HashMap<u8, Vec<Object>> = {
-        let mut deposits: HashMap<u8, Vec<Object>> = HashMap::new();
-        task.products.iter().for_each(|product| {
-            product
-                .resources
+impl<'a> Solver<'a> {
+    pub fn new(task: &'a Task, map: &'a Map) -> Solver<'a> {
+        let deposits_by_type: HashMap<u8, Vec<Object>> = {
+            let mut deposits: HashMap<u8, Vec<Object>> = HashMap::new();
+            task.objects
                 .iter()
-                .enumerate()
-                .filter(|&(_, &amount)| amount > 0)
-                .flat_map(|(resource_index, _)| deposits_by_type[&(resource_index as u8)].iter())
                 .cloned()
-                .for_each(|deposit_object| {
-                    deposits
-                        .entry(product.subtype)
-                        .or_default()
-                        .push(deposit_object);
+                .map(Object::from)
+                .for_each(|obj| {
+                    if let Object::Deposit { subtype, .. } = obj {
+                        deposits.entry(subtype).or_default().push(obj)
+                    }
                 });
-        });
 
-        deposits
-    };
+            deposits
+        };
 
-    let possible_factory_locations = find_possible_factory_positions(original_map);
-
-    let best_factory_positions_by_factory_subtype: HashMap<
-        Subtype,
-        (WeightedIndex<f32>, Vec<Point>),
-    > = task
-        .products
-        .iter()
-        .map(|product| {
-            let factory_type = product.subtype;
-            let deposits = &deposits_by_product[&factory_type];
-            let (probabilities, best_positions) =
-                sort_to_best_positions_by_deposits(&possible_factory_locations, deposits);
-            (factory_type, (probabilities, best_positions))
-        })
-        .collect();
-
-    let mut products: Vec<Product> = task.products.to_vec();
-
-    debug!("{}", original_map);
-
-    /*
-       IDEA
-       ================
-
-       Before iterating:
-       - construct a list of best factory locations for each factory (=product) type needed
-
-       For each iteration:
-       - for each factory type:
-           - pick a factory position with probability equal to its 'value' in list of best positions,
-             where value means distance to all deposits. So if there are three possible positions
-             p_0, p_1, p_2, with distances 20, 30, 50 respectively, the probability to pick
-              p_0 = (20 + 30 + 50) / 20
-              p_1 = (20 + 30 + 50) / 30
-              p_2 = (20 + 30 + 50) / 50
-              normalised.
-       - place factory combination on a tabu list
-       - for each factory f:
-           - for each resource type r:
-               - paths_f_r := create iterator of shortest paths from factory to resource
-       - do n times:
-           - for each factory f:
-               - for each resource type r:
-                   - pick `path` from paths_f_r with index between 0..n (with descending probability?)
-                   - place `path`
-                       - if failure continue `do n times`-loop
-           - store result
-           - (try to generate even more paths)
-    */
-
-    let mut rng = thread_rng();
-
-    // start iterating
-
-    let mut best_solution: Option<(SimulatorResult, Map)> = None;
-
-    'iterate: for n_iteration in 1..=NUM_ITERATIONS {
-        debug!("Starting iteration #{}", n_iteration);
-
-        let mut map = original_map.clone();
-
-        // place factories
-
-        let mut factory_ids = Vec::new();
-
-        // Shuffle products to place factories in different order/priority each iteration
-        products.shuffle(&mut rng);
-
-        'factory_placement: for product in products.iter() {
-            // skip a factory with some probability to try solutions where not all factories are used
-            if rng.gen_ratio(PROBABILITY_FACTORY_SKIP.0, PROBABILITY_FACTORY_SKIP.1) {
-                continue;
-            }
-
-            let factory_type = product.subtype;
-            let (factory_location_distribution, factory_locations) =
-                &best_factory_positions_by_factory_subtype[&factory_type];
-
-            for _ in 0..NUM_MAX_FACTORY_PLACEMENTS {
-                let factory_location =
-                    factory_locations[factory_location_distribution.sample(&mut rng)];
-
-                // TODO: check that for each required resource type, a deposit of such type is
-                // reachable (simple path finding) from this factory location
-                let factory = Object::Factory {
-                    x: factory_location.0,
-                    y: factory_location.1,
-                    subtype: product.subtype,
-                };
-                let factory_id = factory.id();
-
-                if map.insert_object(factory).is_ok() {
-                    // TODO: update factory_positions weights, so that conflicting positions can not be picked anymore
-                    factory_ids.push(factory_id);
-                    continue 'factory_placement;
-                }
-            }
-
-            // TODO: disallow already set factories
-            continue 'iterate;
-        }
-
-        if factory_ids.is_empty() {
-            continue 'iterate;
-        }
-
-        debug!("Factories placed");
-        debug!("{}", map);
-
-        // construct factory -> deposit paths
-
-        // chose path combinations
-
-        // Map from factory subtype => (map of resource type => built path)
-        let mut built_paths_by_factory: HashMap<Subtype, HashMap<Subtype, Path>> = HashMap::new();
-
-        'combining_paths: for n_combining_paths in 0..NUM_PATH_COMBINING_ITERATIONS {
-            debug!("Combining paths #{}", n_combining_paths);
-
-            let mut work_map = map.clone();
-
-            factory_ids.shuffle(&mut rng);
-
-            for &factory_id in factory_ids.iter() {
-                let factory = map.get_object(factory_id);
-                let subtype = factory.subtype().unwrap();
-                let product = task // TODO: use lookup table
-                    .products
-                    .iter()
-                    .find(|product| product.subtype == subtype)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "No product found for subtype {} but a factory is present",
-                            subtype
-                        )
-                    });
-
-                let mut resources: VecDeque<Subtype> = product
+        let deposits_by_product: HashMap<u8, Vec<Object>> = {
+            let mut deposits: HashMap<u8, Vec<Object>> = HashMap::new();
+            task.products.iter().for_each(|product| {
+                product
                     .resources
                     .iter()
                     .enumerate()
-                    .filter_map(|(index, amount)| {
+                    .filter(|&(_, &amount)| amount > 0)
+                    .flat_map(|(resource_index, _)| {
+                        deposits_by_type[&(resource_index as u8)].iter()
+                    })
+                    .cloned()
+                    .for_each(|deposit_object| {
+                        deposits
+                            .entry(product.subtype)
+                            .or_default()
+                            .push(deposit_object);
+                    });
+            });
+
+            deposits
+        };
+
+        let possible_factory_locations = find_possible_factory_positions(map);
+
+        let best_factory_positions_by_factory_subtype: HashMap<
+            Subtype,
+            (WeightedIndex<f32>, Vec<Point>),
+        > = task
+            .products
+            .iter()
+            .map(|product| {
+                let factory_type = product.subtype;
+                let deposits = &deposits_by_product[&factory_type];
+                let (probabilities, best_positions) =
+                    sort_to_best_positions_by_deposits(&possible_factory_locations, deposits);
+                (factory_type, (probabilities, best_positions))
+            })
+            .collect();
+
+        let mut products: Vec<Product> = task.products.to_vec();
+
+        Solver {
+            task,
+            original_map: map,
+            deposits_by_type,
+            deposits_by_product,
+            products,
+            best_factory_positions_by_factory_subtype,
+        }
+    }
+}
+
+impl<'a> Iterator for Solver<'a> {
+    type Item = (SimulatorResult, Map);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Solver {
+            task,
+            original_map,
+            deposits_by_product,
+            deposits_by_type,
+            products,
+            best_factory_positions_by_factory_subtype,
+        } = self;
+
+        debug!("{}", original_map);
+
+        let mut rng = thread_rng();
+
+        // start iterating
+
+        let mut best_solution: Option<(SimulatorResult, Map)> = None;
+
+        'iterate: for n_iteration in 1.. {
+            debug!("Starting iteration #{}", n_iteration);
+
+            let mut map = original_map.clone();
+
+            // place factories
+
+            let mut factory_ids = Vec::new();
+
+            // Shuffle products to place factories in different order/priority each iteration
+            products.shuffle(&mut rng);
+
+            'factory_placement: for product in products.iter() {
+                // skip a factory with some probability to try solutions where not all factories are used
+                if rng.gen_ratio(PROBABILITY_FACTORY_SKIP.0, PROBABILITY_FACTORY_SKIP.1) {
+                    continue 'factory_placement;
+                }
+
+                let factory_type = product.subtype;
+                let (factory_location_distribution, factory_locations) =
+                    &best_factory_positions_by_factory_subtype[&factory_type];
+
+                for _ in 0..NUM_MAX_FACTORY_PLACEMENTS {
+                    let factory_location =
+                        factory_locations[factory_location_distribution.sample(&mut rng)];
+
+                    // TODO: check that for each required resource type, a deposit of such type is
+                    // reachable (simple path finding) from this factory location
+                    let factory = Object::Factory {
+                        x: factory_location.0,
+                        y: factory_location.1,
+                        subtype: product.subtype,
+                    };
+                    let factory_id = factory.id();
+
+                    if map.insert_object(factory).is_ok() {
+                        // TODO: update factory_positions weights, so that conflicting positions can not be picked anymore
+                        factory_ids.push(factory_id);
+                        continue 'factory_placement;
+                    }
+                }
+
+                // TODO: disallow already set factories
+                continue 'iterate;
+            }
+
+            if factory_ids.is_empty() {
+                continue 'iterate;
+            }
+
+            debug!("Factories placed");
+            debug!("{}", map);
+
+            // construct factory -> deposit paths
+
+            // chose path combinations
+
+            // Map from factory subtype => (map of resource type => built path)
+            let mut built_paths_by_factory: HashMap<Subtype, HashMap<Subtype, Path>> =
+                HashMap::new();
+
+            'combining_paths: for n_combining_paths in 0..NUM_PATH_COMBINING_ITERATIONS {
+                debug!("Combining paths #{}", n_combining_paths);
+
+                let mut work_map = map.clone();
+
+                factory_ids.shuffle(&mut rng);
+
+                for &factory_id in factory_ids.iter() {
+                    let factory = map.get_object(factory_id);
+                    let subtype = factory.subtype().unwrap();
+                    let product = task // TODO: use lookup table
+                        .products
+                        .iter()
+                        .find(|product| product.subtype == subtype)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "No product found for subtype {} but a factory is present",
+                                subtype
+                            )
+                        });
+
+                    let mut resources: VecDeque<Subtype> = product
+                        .resources
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, amount)| {
+                            if *amount > 0 {
+                                Some(index as Subtype)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    resources.make_contiguous().shuffle(&mut rng);
+
+                    let mut processed_resources: VecDeque<Subtype> = VecDeque::new();
+
+                    let mut paths_by_resource: HashMap<Subtype, Paths> = resources
+                        .iter()
+                        .map(|resource| (*resource, Paths::default()))
+                        .collect();
+
+                    let mut built_paths_by_resource: HashMap<Subtype, Path> = HashMap::new();
+
+                    'path_building: while let Some(resource) = resources.pop_front() {
+                        debug!(
+                            "Try to find path from factory {} to resource {}",
+                            factory.subtype().unwrap(),
+                            resource
+                        );
+
+                        /* LOGIC
+                        1a. If no path to resource built yet:
+                            - Built and store paths for resource, based on already built paths
+                            - Choose first valid of such paths
+                        1b. Else:
+                            - Choose the next valid path from prebuilt paths
+                        2. Build and store the choosen path
+                        3a. If no path can be choosen:
+                            - push back resource and also push top of 'done' stack
+                        3b. Else:
+                            - pop resource and push it onto 'done' stack
+                        */
+
+                        let available_paths = paths_by_resource
+                            .entry(resource)
+                            .and_modify(|paths| {
+                                if paths.is_empty() {
+                                    let start_points = {
+                                        let mut start_points = factory.ingresses().to_vec();
+                                        for path in built_paths_by_resource.values() {
+                                            for ingress in path.all_ingresses() {
+                                                start_points.push(ingress);
+                                            }
+                                        }
+                                        start_points
+                                    };
+                                    *paths = Paths::new(
+                                        &start_points,
+                                        resource,
+                                        &deposits_by_type[&resource],
+                                        &map,
+                                    );
+                                }
+                            })
+                            .or_default();
+
+                        // FIXME: 'paths_tried' should be remembered for this resource
+                        for (paths_tried, path) in available_paths.by_ref().enumerate() {
+                            if paths_tried as u32 > NUM_PATHS_PER_FACTORY_AND_RESOURCE {
+                                break; // go to backtrack
+                            }
+
+                            if work_map
+                                .try_insert_objects(path.objects().cloned().collect())
+                                .is_ok()
+                            {
+                                built_paths_by_resource.insert(resource, path);
+                                // debug!("{}", work_map);
+                                processed_resources.push_back(resource);
+                                continue 'path_building;
+                            }
+                        }
+
+                        // backtrack
+                        available_paths.clear();
+                        built_paths_by_resource.remove(&resource);
+
+                        resources.push_front(resource);
+                        if let Some(prior_resource) = processed_resources.pop_back() {
+                            resources.push_front(prior_resource);
+                        } else {
+                            continue 'combining_paths;
+                        }
+                    }
+
+                    built_paths_by_factory.insert(subtype, built_paths_by_resource);
+
+                    debug!("Initial paths built");
+                    debug!("{}", work_map);
+                }
+
+                map = work_map;
+                break 'combining_paths;
+            }
+
+            // Prepare weights for building additional paths
+
+            let mut factory_resource_pairs: Vec<(ObjectID, Subtype)> = Vec::new();
+            let mut factory_resource_weights_raw: Vec<u32> = Vec::new();
+            for &factory_id in factory_ids.iter() {
+                let factory = map.get_object(factory_id);
+                let subtype = factory.subtype().unwrap();
+                let product = &products[subtype as usize];
+                for (resource_index, resource_amount) in product
+                    .resources
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, amount)| {
                         if *amount > 0 {
-                            Some(index as Subtype)
+                            Some((idx, amount))
                         } else {
                             None
                         }
                     })
-                    .collect();
-
-                resources.make_contiguous().shuffle(&mut rng);
-
-                let mut processed_resources: VecDeque<Subtype> = VecDeque::new();
-
-                let mut paths_by_resource: HashMap<Subtype, Paths> = resources
-                    .iter()
-                    .map(|resource| (*resource, Paths::default()))
-                    .collect();
-
-                let mut built_paths_by_resource: HashMap<Subtype, Path> = HashMap::new();
-
-                'path_building: while let Some(resource) = resources.pop_front() {
-                    debug!(
-                        "Try to find path from factory {} to resource {}",
-                        factory.subtype().unwrap(),
-                        resource
-                    );
-
-                    /* LOGIC
-                      1a. If no path to resource built yet:
-                           - Built and store paths for resource, based on already built paths
-                           - Choose first valid of such paths
-                      1b. Else:
-                           - Choose the next valid path from prebuilt paths
-                      2. Build and store the choosen path
-                      3a. If no path can be choosen:
-                           - push back resource and also push top of 'done' stack
-                      3b. Else:
-                           - pop resource and push it onto 'done' stack
-                    */
-
-                    let available_paths = paths_by_resource
-                        .entry(resource)
-                        .and_modify(|paths| {
-                            if paths.is_empty() {
-                                let start_points = {
-                                    let mut start_points = factory.ingresses().to_vec();
-                                    for path in built_paths_by_resource.values() {
-                                        for ingress in path.all_ingresses() {
-                                            start_points.push(ingress);
-                                        }
-                                    }
-                                    start_points
-                                };
-                                *paths = Paths::new(
-                                    &start_points,
-                                    resource,
-                                    &deposits_by_type[&resource],
-                                    &map,
-                                );
-                            }
-                        })
-                        .or_default();
-
-                    // FIXME: 'paths_tried' should be remembered for this resource
-                    for (paths_tried, path) in available_paths.by_ref().enumerate() {
-                        if paths_tried as u32 > NUM_PATHS_PER_FACTORY_AND_RESOURCE {
-                            break; // go to backtrack
-                        }
-
-                        if work_map
-                            .try_insert_objects(path.objects().cloned().collect())
-                            .is_ok()
-                        {
-                            built_paths_by_resource.insert(resource, path);
-                            // debug!("{}", work_map);
-                            processed_resources.push_back(resource);
-                            continue 'path_building;
-                        }
-                    }
-
-                    // backtrack
-                    available_paths.clear();
-                    built_paths_by_resource.remove(&resource);
-
-                    resources.push_front(resource);
-                    if let Some(prior_resource) = processed_resources.pop_back() {
-                        resources.push_front(prior_resource);
-                    } else {
-                        continue 'combining_paths;
-                    }
-                }
-
-                built_paths_by_factory.insert(subtype, built_paths_by_resource);
-
-                debug!("Initial paths built");
-                debug!("{}", work_map);
-            }
-
-            map = work_map;
-            break 'combining_paths;
-        }
-
-        // Prepare weights for building additional paths
-
-        let mut factory_resource_pairs: Vec<(ObjectID, Subtype)> = Vec::new();
-        let mut factory_resource_weights_raw: Vec<u32> = Vec::new();
-        for &factory_id in factory_ids.iter() {
-            let factory = map.get_object(factory_id);
-            let subtype = factory.subtype().unwrap();
-            let product = &products[subtype as usize];
-            for (resource_index, resource_amount) in product
-                .resources
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, amount)| {
-                    if *amount > 0 {
-                        Some((idx, amount))
-                    } else {
-                        None
-                    }
-                })
-            {
-                let key = (factory_id, resource_index as Subtype);
-                factory_resource_pairs.push(key);
-                let weight = resource_amount * product.points;
-                factory_resource_weights_raw.push(weight);
-            }
-        }
-        let mut factory_resource_weights = WeightedIndex::new(factory_resource_weights_raw.clone())
-            .expect("Cannot built (factory,resource) weights");
-
-        debug!("Building additional paths");
-
-        // TODO: investigate optimal number of failed tries per factory/resource tuple
-        let max_additional_path_failures = factory_ids.len() * 3;
-        let mut additional_path_failures = 0;
-        'additional_paths: loop {
-            let factory_resource_pair_index = factory_resource_weights.sample(&mut rng);
-            let (factory_id, resource_index) = factory_resource_pairs[factory_resource_pair_index];
-            let factory = map.get_object(factory_id);
-
-            debug!(
-                "Try building path from factory {} to resource {}",
-                factory.subtype().unwrap(),
-                resource_index
-            );
-
-            let built_paths_by_resource = built_paths_by_factory
-                .entry(factory.subtype().unwrap())
-                .or_default();
-            let start_points = {
-                let mut start_points = factory.ingresses().to_vec();
-                for path in built_paths_by_resource.values() {
-                    for ingress in path.all_ingresses() {
-                        start_points.push(ingress);
-                    }
-                }
-                start_points
-            };
-
-            let mut i = 1;
-            for path in Paths::new(
-                &start_points,
-                resource_index,
-                &deposits_by_type[&resource_index],
-                &map,
-            )
-            .take(NUM_ADDITION_PATHS_PER_FACTORY_AND_RESOURCE as usize)
-            {
-                debug!("Checking path #{}", i);
-                i += 1;
-                if map
-                    .try_insert_objects(path.objects().cloned().collect())
-                    .is_ok()
                 {
-                    built_paths_by_resource.insert(resource_index, path);
-                    debug!("{}", map);
-                    continue 'additional_paths;
+                    let key = (factory_id, resource_index as Subtype);
+                    factory_resource_pairs.push(key);
+                    let weight = resource_amount * product.points;
+                    factory_resource_weights_raw.push(weight);
+                }
+            }
+            let mut factory_resource_weights =
+                WeightedIndex::new(factory_resource_weights_raw.clone())
+                    .expect("Cannot built (factory,resource) weights");
+
+            debug!("Building additional paths");
+
+            // TODO: investigate optimal number of failed tries per factory/resource tuple
+            let max_additional_path_failures = factory_ids.len() * 3;
+            let mut additional_path_failures = 0;
+            'additional_paths: loop {
+                let factory_resource_pair_index = factory_resource_weights.sample(&mut rng);
+                let (factory_id, resource_index) =
+                    factory_resource_pairs[factory_resource_pair_index];
+                let factory = map.get_object(factory_id);
+
+                debug!(
+                    "Try building path from factory {} to resource {}",
+                    factory.subtype().unwrap(),
+                    resource_index
+                );
+
+                let built_paths_by_resource = built_paths_by_factory
+                    .entry(factory.subtype().unwrap())
+                    .or_default();
+                let start_points = {
+                    let mut start_points = factory.ingresses().to_vec();
+                    for path in built_paths_by_resource.values() {
+                        for ingress in path.all_ingresses() {
+                            start_points.push(ingress);
+                        }
+                    }
+                    start_points
+                };
+
+                let mut i = 1;
+                for path in Paths::new(
+                    &start_points,
+                    resource_index,
+                    &deposits_by_type[&resource_index],
+                    &map,
+                )
+                .take(NUM_ADDITION_PATHS_PER_FACTORY_AND_RESOURCE as usize)
+                {
+                    debug!("Checking path #{}", i);
+                    i += 1;
+                    if map
+                        .try_insert_objects(path.objects().cloned().collect())
+                        .is_ok()
+                    {
+                        built_paths_by_resource.insert(resource_index, path);
+                        debug!("{}", map);
+                        continue 'additional_paths;
+                    }
+                }
+
+                // Reduce weight of current factory,resource tuple
+                let new_weight = &mut factory_resource_weights_raw[factory_resource_pair_index];
+                *new_weight /= 2; //TODO: try to use some kind of exponential backoff
+                if factory_resource_weights
+                    .update_weights(&[(factory_resource_pair_index, new_weight)])
+                    .is_err()
+                {
+                    break 'additional_paths;
+                }
+
+                additional_path_failures += 1;
+
+                if additional_path_failures > max_additional_path_failures {
+                    break 'additional_paths;
                 }
             }
 
-            // Reduce weight of current factory,resource tuple
-            let new_weight = &mut factory_resource_weights_raw[factory_resource_pair_index];
-            *new_weight /= 2; //TODO: try to use some kind of exponential backoff
-            if factory_resource_weights
-                .update_weights(&[(factory_resource_pair_index, new_weight)])
-                .is_err()
-            {
-                break 'additional_paths;
-            }
+            debug!("Additional paths built");
+            debug!("{}", map);
 
-            additional_path_failures += 1;
+            let map_score = simulate(task, &map, true);
 
-            if additional_path_failures > max_additional_path_failures {
-                break 'additional_paths;
-            }
-        }
-
-        debug!("Additional paths built");
-        debug!("{}", map);
-
-        let map_score = simulate(task, &map, true);
-
-        best_solution = if let Some((result, best_map)) = best_solution {
-            if map_score > result {
+            if let Some((result, _)) = &best_solution {
+                if map_score > *result {
+                    debug!("{:?}", map_score);
+                    debug!("{}", map);
+                    best_solution = Some((map_score, map));
+                    return best_solution;
+                }
+            } else if map_score.score > 0 {
                 debug!("{:?}", map_score);
                 debug!("{}", map);
-                Some((map_score, map))
-            } else {
-                Some((result, best_map))
-            }
-        } else {
-            debug!("{:?}", map_score);
-            debug!("{}", map);
-            Some((map_score, map))
-        };
-    }
+                best_solution = Some((map_score, map));
+                return best_solution;
+            };
+        }
 
-    best_solution
+        None
+    }
 }
 
 /// Finds all locations, at which a 5x5 factory could be legally placed

@@ -167,7 +167,7 @@ impl Iterator for Paths {
             min_distance = match min_distance {
                 None => Some((path_distance, i)),
                 Some((dist, _)) if path_distance < dist => Some((path_distance, i)),
-                Some((_, j)) if j - i < MAX_STEPS_WITHOUT_IMPROVEMENT => min_distance,
+                Some((_, j)) if i - j < MAX_STEPS_WITHOUT_IMPROVEMENT => min_distance,
                 _ => {
                     return None;
                 }
