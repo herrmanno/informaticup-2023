@@ -9,5 +9,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+criterion = { version = "0.4.0", features = ["html_reports"] }
 serde = { version = "1.0.145", features = ["derive"] }
 serde_json = "1.0.86"
+
+[[bench]]
+name = "benchmarks"
+harness = false
