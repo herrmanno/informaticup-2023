@@ -207,28 +207,32 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
             if let Object::Factory { subtype, .. } = object {
                 let factory_resources = resource_distribution.get_mut(factory_id).unwrap();
                 if let Some(&product) = products_by_type.get(subtype) {
-                    let can_produce = product.resources.iter().enumerate().all(
-                        |(resource_index, resource_amount)| {
-                            factory_resources.borrow_mut()[resource_index] >= *resource_amount
-                        },
-                    );
+                    'produce_loop: loop {
+                        let can_produce = product.resources.iter().enumerate().all(
+                            |(resource_index, resource_amount)| {
+                                factory_resources.borrow_mut()[resource_index] >= *resource_amount
+                            },
+                        );
 
-                    if can_produce {
-                        score += product.points;
-                        for (resource_index, amount) in product.resources.iter().enumerate() {
-                            factory_resources.borrow_mut()[resource_index] -= amount;
+                        if can_produce {
+                            score += product.points;
+                            for (resource_index, amount) in product.resources.iter().enumerate() {
+                                factory_resources.borrow_mut()[resource_index] -= amount;
+                            }
+
+                            let (x, y) = object.coords();
+
+                            if !quiet {
+                                println!(
+                                    "{} (end): ({}, {}) produces {} ({} points)",
+                                    turn, x, y, subtype, product.points
+                                );
+                            }
+
+                            best_turn = turn;
+                        } else {
+                            break 'produce_loop;
                         }
-
-                        let (x, y) = object.coords();
-
-                        if !quiet {
-                            println!(
-                                "{} (end): ({}, {}) produces {} ({} points)",
-                                turn, x, y, subtype, product.points
-                            );
-                        }
-
-                        best_turn = turn;
                     }
                 } else {
                     panic!(
