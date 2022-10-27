@@ -8,7 +8,7 @@ use model::{
 pub type PathID = u128;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Path {
+pub enum Path {
     End { ingresses: Vec<Point> },
     Segment { object: Object, tail: Rc<Path> },
 }

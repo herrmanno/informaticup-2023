@@ -3,6 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 use crate::{
     coord::{neighbours, Point},
     object::{Coord, Object, ObjectCell, ObjectID, ObjectType},
+    task::Task,
 };
 
 #[derive(Debug, Clone)]
@@ -305,6 +306,12 @@ impl Display for Map {
     }
 }
 
+impl From<&Task> for Map {
+    fn from(task: &Task) -> Self {
+        let objects = task.objects.iter().cloned().map(Object::from).collect();
+        Map::new(task.width, task.height, objects)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -21,7 +21,7 @@ const MAX_SEARCH_TIME_IN_MILLIS: u64 = 2000;
 /// Max partial paths to look at without improvement (of distance to target) before search cancellation
 const MAX_STEPS_WITHOUT_IMPROVEMENT: usize = 100;
 
-pub(crate) struct Paths<T> {
+pub struct Paths<T> {
     distances_to_deposits: HashMap<Point, u32>,
     paths_so_far: HashSet<PathID>,
     queue: BinaryHeap<Reverse<(u32, u32, Rc<Path>)>>,

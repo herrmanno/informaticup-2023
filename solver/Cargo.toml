@@ -11,3 +11,8 @@ common = { path = "../common" }
 model = { path = "../model" }
 simulator = { path = "../simulator" }
 rand = "0.8.5"
+criterion = { version = "0.4.0", features = ["html_reports"] }
+
+[[bench]]
+name = "benchmarks"
+harness = false

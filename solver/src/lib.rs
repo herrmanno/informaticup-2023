@@ -1,3 +1,3 @@
 mod path;
-mod paths;
+pub mod paths;
 pub mod solve;
