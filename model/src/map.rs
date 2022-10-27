@@ -10,7 +10,7 @@ pub struct Map {
     width: u8,
     height: u8,
     map: HashMap<Point, ObjectCell>,
-    objects: HashMap<ObjectID, Object>,
+    objects: HashMap<ObjectID, Object>, //TODO: try (and measure) turning this into hashset
 }
 
 impl Map {
@@ -214,7 +214,10 @@ impl Map {
         }
 
         // check that the new part's exgress does not touch multiple ingresses
-        if object.kind() == ObjectType::Conveyor || object.kind() == ObjectType::Combiner {
+        if object.kind() == ObjectType::Conveyor
+            || object.kind() == ObjectType::Combiner
+            || object.kind() == ObjectType::Mine
+        {
             if let Some((x, y)) = object.exgress() {
                 let num_neighbouring_ingresses = neighbours(x, y)
                     .iter()
@@ -552,5 +555,140 @@ mod tests {
         }
     }
 
-    // TODO: test special rules
+    #[test]
+    fn no_piece_but_mine_can_touch_deposit_with_ingress() {
+        let map = Map::new(
+            10,
+            10,
+            vec![Object::Deposit {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                subtype: 0,
+            }],
+        );
+
+        {
+            let map = map.clone();
+            let result = map.can_insert_object(&Object::Mine {
+                x: 1,
+                y: 0,
+                subtype: 0,
+            });
+            assert!(result.is_ok());
+        }
+
+        let objects = vec![
+            Object::Factory {
+                x: 1,
+                y: 0,
+                subtype: 0,
+            },
+            Object::Conveyor {
+                x: 2,
+                y: 0,
+                subtype: 0,
+            },
+            Object::Combiner {
+                x: 2,
+                y: 1,
+                subtype: 0,
+            },
+        ];
+
+        for object in objects {
+            let map = map.clone();
+            let result = map.can_insert_object(&object);
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn no_pieces_exgress_can_touch_multiple_ingresses() {
+        let map = Map::new(
+            10,
+            10,
+            vec![
+                Object::Conveyor {
+                    x: 6,
+                    y: 3,
+                    subtype: 0,
+                },
+                Object::Conveyor {
+                    x: 6,
+                    y: 5,
+                    subtype: 0,
+                },
+            ],
+        );
+
+        let objects = vec![
+            Object::Mine {
+                x: 3,
+                y: 3,
+                subtype: 0,
+            },
+            Object::Conveyor {
+                x: 4,
+                y: 4,
+                subtype: 0,
+            },
+            Object::Combiner {
+                x: 4,
+                y: 4,
+                subtype: 0,
+            },
+        ];
+
+        for object in objects {
+            let map = map.clone();
+            let result = map.can_insert_object(&object);
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn no_pieces_ingress_can_touch_already_connected_exgress() {
+        let map = Map::new(
+            10,
+            10,
+            vec![
+                Object::Conveyor {
+                    x: 4,
+                    y: 4,
+                    subtype: 0,
+                },
+                Object::Conveyor {
+                    x: 6,
+                    y: 5,
+                    subtype: 0,
+                },
+            ],
+        );
+
+        let objects = vec![
+            Object::Mine {
+                x: 6,
+                y: 2,
+                subtype: 0,
+            },
+            Object::Conveyor {
+                x: 6,
+                y: 3,
+                subtype: 0,
+            },
+            Object::Combiner {
+                x: 6,
+                y: 2,
+                subtype: 0,
+            },
+        ];
+
+        for object in objects {
+            let map = map.clone();
+            let result = map.can_insert_object(&object);
+            assert!(result.is_err());
+        }
+    }
 }
