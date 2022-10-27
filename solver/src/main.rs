@@ -5,9 +5,12 @@ use model::{
     cli::CliFile, input::read_input_from_stdin, map::Map, object::Object, solution::Solution,
     task::Task,
 };
+use rand::{rngs::StdRng, SeedableRng};
 use simulator::SimulatorResult;
 use solver::solve::Solver;
 use std::{
+    cell::RefCell,
+    rc::Rc,
     sync::{mpsc, Arc, RwLock},
     thread,
     time::{Duration, Instant},
@@ -41,7 +44,7 @@ fn main() {
 
     debug!("Using {} thread(s)", num_threads);
 
-    let result = run_solver(&task, &map, num_threads, runtime);
+    let result = run_solver(&task, &map, num_threads, runtime, args.seed);
 
     if let Some(solution) = result {
         if cfg!(debug_assertions) || args.stats {
@@ -73,11 +76,12 @@ fn run_solver(
     map: &Map,
     num_threads: usize,
     runtime: Duration,
+    seed: Option<u64>,
 ) -> Option<(SimulatorResult, Map)> {
     if num_threads == 1 {
-        run_solver_single_threaded(task, map, runtime)
+        run_solver_single_threaded(task, map, runtime, seed)
     } else {
-        run_solver_multi_threaded(task, map, num_threads, runtime)
+        run_solver_multi_threaded(task, map, num_threads, runtime, seed)
     }
 }
 
@@ -85,10 +89,15 @@ fn run_solver_single_threaded(
     task: &Task,
     map: &Map,
     runtime: Duration,
+    seed: Option<u64>,
 ) -> Option<(SimulatorResult, Map)> {
     let time_start = Instant::now();
     let mut result: Option<(SimulatorResult, Map)> = None;
-    let solver = Solver::new(task, map);
+    let rng = match seed {
+        Some(seed) => StdRng::seed_from_u64(seed),
+        _ => StdRng::from_entropy(),
+    };
+    let solver = Solver::new(task, map, Rc::new(RefCell::new(rng)));
 
     let mut next_solution_estimate = RollingAverage::new();
     let mut last_solution = Instant::now();
@@ -116,6 +125,7 @@ fn run_solver_multi_threaded(
     map: &Map,
     num_threads: usize,
     runtime: Duration,
+    seed: Option<u64>,
 ) -> Option<(SimulatorResult, Map)> {
     let now = Instant::now();
     // Extra time for accumulating gathered solutions TODO: find best value by empirical measurement
@@ -134,7 +144,11 @@ fn run_solver_multi_threaded(
             let sender = sender.clone();
             let stop_condition = Arc::clone(&stop_condition);
             scope.spawn(move || {
-                let solver = Solver::new(task, map);
+                let rng = match seed {
+                    Some(seed) => StdRng::seed_from_u64(seed.wrapping_add(i_thread as u64)),
+                    _ => StdRng::from_entropy(),
+                };
+                let solver = Solver::new(task, map, Rc::new(RefCell::new(rng)));
                 for solution in solver {
                     if *(*stop_condition).read().unwrap() {
                         break;

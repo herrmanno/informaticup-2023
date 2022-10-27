@@ -13,6 +13,9 @@ pub(crate) struct Args {
     #[arg(long, help = "Output format")]
     pub out: Option<OutputFormat>,
 
+    #[arg(long, help = "Seed for rng")]
+    pub seed: Option<u64>,
+
     #[arg(long, help = "Print additional solution stats")]
     pub stats: bool,
 

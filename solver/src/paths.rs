@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     cmp::Reverse,
     collections::{BinaryHeap, HashMap, HashSet, VecDeque},
     rc::Rc,
@@ -11,7 +12,7 @@ use model::{
     map::Map,
     object::{Object, ObjectCell, ObjectType},
 };
-use rand::{thread_rng, Rng};
+use rand::Rng;
 
 /// Max time to search for the next path
 const MAX_SEARCH_TIME_IN_MILLIS: u64 = 2000;
@@ -20,21 +21,22 @@ const MAX_SEARCH_TIME_IN_MILLIS: u64 = 2000;
 /// Max partial paths to look at without improvement (of distance to target) before search cancellation
 const MAX_STEPS_WITHOUT_IMPROVEMENT: usize = 100;
 
-pub(crate) struct Paths {
+pub(crate) struct Paths<T> {
     distances_to_deposits: HashMap<Point, u32>,
     paths_so_far: HashSet<PathID>,
     queue: BinaryHeap<Reverse<(u32, u32, Rc<Path>)>>,
     resource_index: u8,
     map: Map, //TODO: borrow, instaed of own
+    rng: Rc<RefCell<T>>,
 }
 
-impl Paths {
+impl<T: Rng> Paths<T> {
     pub fn new(
         start_points: &[Point],
         resource_index: u8,
         deposits: &[Object],
         map: &Map,
-        //TODO: use (at least a little bit) of randomness when finding paths
+        rng: Rc<RefCell<T>>,
     ) -> Self {
         let distances_to_deposits = build_distance_map_from_deposits(map, deposits);
 
@@ -62,28 +64,18 @@ impl Paths {
             queue,
             resource_index,
             map: map.clone(),
+            rng,
         }
     }
 
+    #[allow(dead_code)] //TODO: remove
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
     }
 
+    #[allow(dead_code)] //TODO: remove
     pub fn clear(&mut self) {
         self.queue.clear();
-    }
-}
-
-impl Default for Paths {
-    fn default() -> Self {
-        let map = Map::new(1, 1, vec![]);
-        Self {
-            distances_to_deposits: Default::default(),
-            paths_so_far: Default::default(),
-            queue: Default::default(),
-            resource_index: Default::default(),
-            map,
-        }
     }
 }
 
@@ -97,7 +89,7 @@ impl Default for Paths {
 
 */
 
-impl Iterator for Paths {
+impl<T: Rng> Iterator for Paths<T> {
     type Item = Path;
 
     /* TODO: Abort search if no great improvement can be found over some time
@@ -140,17 +132,17 @@ impl Iterator for Paths {
             queue,
             resource_index,
             map,
+            ref rng,
         } = self;
 
-        let mut rng = thread_rng(); //TODO: move rng into paths's state
-        let mut min_distance_to_deposits = |points: &[Point]| {
+        let min_distance_to_deposits = |points: &[Point]| {
             points
                 .iter()
                 .filter_map(|point| distances_to_deposits.get(point))
                 .min()
                 .cloned()
                 .unwrap_or(u32::MAX)
-                .saturating_add(rng.gen_range(0..=10)) // TODO: use randomness in a smarter way
+                .saturating_add(rng.borrow_mut().gen_range(0..=10)) // TODO: use randomness in a smarter way
         };
 
         let timer = Instant::now();

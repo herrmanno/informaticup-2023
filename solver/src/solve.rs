@@ -1,4 +1,9 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
+    ops::DerefMut,
+    rc::Rc,
+};
 
 use common::debug;
 use model::{
@@ -9,9 +14,7 @@ use model::{
 };
 
 use crate::{path::Path, paths::Paths};
-use rand::{
-    distributions::WeightedIndex, prelude::Distribution, seq::SliceRandom, thread_rng, Rng,
-};
+use rand::{distributions::WeightedIndex, prelude::Distribution, seq::SliceRandom, Rng};
 use simulator::{simulate, SimulatorResult};
 
 /// Number of times a factory location is tried.
@@ -31,19 +34,20 @@ const NUM_ADDITION_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 10;
 const NUM_PATH_COMBINING_ITERATIONS: u32 = 10;
 
 /// Max number of BFS states to process when finding a path
+#[allow(dead_code)] //TODO: remove
 const NUM_MAX_PATH_FINDING_STEPS: u32 = 100_000;
 
-pub struct Solver<'a> {
+pub struct Solver<'a, T> {
     task: &'a Task,
     original_map: &'a Map,
     deposits_by_type: HashMap<Subtype, Vec<Object>>,
-    deposits_by_product: HashMap<Subtype, Vec<Object>>,
     products: Vec<Product>,
     best_factory_positions_by_factory_subtype: HashMap<Subtype, (WeightedIndex<f32>, Vec<Point>)>,
+    rng: Rc<RefCell<T>>,
 }
 
-impl<'a> Solver<'a> {
-    pub fn new(task: &'a Task, map: &'a Map) -> Solver<'a> {
+impl<'a, T: Rng> Solver<'a, T> {
+    pub fn new(task: &'a Task, map: &'a Map, rng: Rc<RefCell<T>>) -> Solver<'a, T> {
         let deposits_by_type: HashMap<u8, Vec<Object>> = {
             let mut deposits: HashMap<u8, Vec<Object>> = HashMap::new();
             task.objects
@@ -99,40 +103,42 @@ impl<'a> Solver<'a> {
             })
             .collect();
 
-        let mut products: Vec<Product> = task.products.to_vec();
+        let products: Vec<Product> = task.products.to_vec();
 
         Solver {
             task,
             original_map: map,
             deposits_by_type,
-            deposits_by_product,
             products,
             best_factory_positions_by_factory_subtype,
+            rng,
         }
     }
 }
 
-impl<'a> Iterator for Solver<'a> {
+impl<'a, T: Rng> Iterator for Solver<'a, T> {
     type Item = (SimulatorResult, Map);
 
     fn next(&mut self) -> Option<Self::Item> {
         let Solver {
             task,
             original_map,
-            deposits_by_product,
             deposits_by_type,
             products,
             best_factory_positions_by_factory_subtype,
+            ref rng,
+            ..
         } = self;
 
         debug!("{}", original_map);
 
-        let mut rng = thread_rng();
+        // let rng = self.rng;
 
         // start iterating
 
         let mut best_solution: Option<(SimulatorResult, Map)> = None;
 
+        #[allow(unused_variables)]
         'iterate: for n_iteration in 1.. {
             debug!("Starting iteration #{}", n_iteration);
 
@@ -143,11 +149,14 @@ impl<'a> Iterator for Solver<'a> {
             let mut factory_ids = Vec::new();
 
             // Shuffle products to place factories in different order/priority each iteration
-            products.shuffle(&mut rng);
+            products.shuffle(rng.borrow_mut().deref_mut());
 
             'factory_placement: for product in products.iter() {
                 // skip a factory with some probability to try solutions where not all factories are used
-                if rng.gen_ratio(PROBABILITY_FACTORY_SKIP.0, PROBABILITY_FACTORY_SKIP.1) {
+                if (**rng)
+                    .borrow_mut()
+                    .gen_ratio(PROBABILITY_FACTORY_SKIP.0, PROBABILITY_FACTORY_SKIP.1)
+                {
                     continue 'factory_placement;
                 }
 
@@ -156,8 +165,8 @@ impl<'a> Iterator for Solver<'a> {
                     &best_factory_positions_by_factory_subtype[&factory_type];
 
                 for _ in 0..NUM_MAX_FACTORY_PLACEMENTS {
-                    let factory_location =
-                        factory_locations[factory_location_distribution.sample(&mut rng)];
+                    let factory_location = factory_locations
+                        [factory_location_distribution.sample(rng.borrow_mut().deref_mut())];
 
                     // TODO: check that for each required resource type, a deposit of such type is
                     // reachable (simple path finding) from this factory location
@@ -194,12 +203,13 @@ impl<'a> Iterator for Solver<'a> {
             let mut built_paths_by_factory: HashMap<Subtype, HashMap<Subtype, Path>> =
                 HashMap::new();
 
+            #[allow(unused_variables)]
             'combining_paths: for n_combining_paths in 0..NUM_PATH_COMBINING_ITERATIONS {
                 debug!("Combining paths #{}", n_combining_paths);
 
                 let mut work_map = map.clone();
 
-                factory_ids.shuffle(&mut rng);
+                factory_ids.shuffle(rng.borrow_mut().deref_mut());
 
                 for &factory_id in factory_ids.iter() {
                     let factory = map.get_object(factory_id);
@@ -228,14 +238,14 @@ impl<'a> Iterator for Solver<'a> {
                         })
                         .collect();
 
-                    resources.make_contiguous().shuffle(&mut rng);
+                    resources
+                        .make_contiguous()
+                        .shuffle(rng.borrow_mut().deref_mut());
 
                     let mut processed_resources: VecDeque<Subtype> = VecDeque::new();
 
-                    let mut paths_by_resource: HashMap<Subtype, Paths> = resources
-                        .iter()
-                        .map(|resource| (*resource, Paths::default()))
-                        .collect();
+                    let mut paths_by_resource: HashMap<Subtype, Option<Paths<T>>> =
+                        resources.iter().map(|resource| (*resource, None)).collect();
 
                     let mut built_paths_by_resource: HashMap<Subtype, Path> = HashMap::new();
 
@@ -262,7 +272,7 @@ impl<'a> Iterator for Solver<'a> {
                         let available_paths = paths_by_resource
                             .entry(resource)
                             .and_modify(|paths| {
-                                if paths.is_empty() {
+                                if paths.is_none() {
                                     let start_points = {
                                         let mut start_points = factory.ingresses().to_vec();
                                         for path in built_paths_by_resource.values() {
@@ -272,35 +282,38 @@ impl<'a> Iterator for Solver<'a> {
                                         }
                                         start_points
                                     };
-                                    *paths = Paths::new(
+                                    *paths = Some(Paths::new(
                                         &start_points,
                                         resource,
                                         &deposits_by_type[&resource],
                                         &map,
-                                    );
+                                        Rc::clone(&self.rng),
+                                    ));
                                 }
                             })
                             .or_default();
 
                         // FIXME: 'paths_tried' should be remembered for this resource
-                        for (paths_tried, path) in available_paths.by_ref().enumerate() {
-                            if paths_tried as u32 > NUM_PATHS_PER_FACTORY_AND_RESOURCE {
-                                break; // go to backtrack
-                            }
+                        if let Some(available_paths) = available_paths {
+                            for (paths_tried, path) in available_paths.by_ref().enumerate() {
+                                if paths_tried as u32 > NUM_PATHS_PER_FACTORY_AND_RESOURCE {
+                                    break; // go to backtrack
+                                }
 
-                            if work_map
-                                .try_insert_objects(path.objects().cloned().collect())
-                                .is_ok()
-                            {
-                                built_paths_by_resource.insert(resource, path);
-                                // debug!("{}", work_map);
-                                processed_resources.push_back(resource);
-                                continue 'path_building;
+                                if work_map
+                                    .try_insert_objects(path.objects().cloned().collect())
+                                    .is_ok()
+                                {
+                                    built_paths_by_resource.insert(resource, path);
+                                    // debug!("{}", work_map);
+                                    processed_resources.push_back(resource);
+                                    continue 'path_building;
+                                }
                             }
                         }
 
                         // backtrack
-                        available_paths.clear();
+                        *available_paths = None;
                         built_paths_by_resource.remove(&resource);
 
                         resources.push_front(resource);
@@ -357,7 +370,9 @@ impl<'a> Iterator for Solver<'a> {
             let max_additional_path_failures = factory_ids.len() * 3;
             let mut additional_path_failures = 0;
             'additional_paths: loop {
-                let factory_resource_pair_index = factory_resource_weights.sample(&mut rng);
+                let factory_resource_pair_index =
+                    factory_resource_weights.sample(rng.borrow_mut().deref_mut());
+
                 let (factory_id, resource_index) =
                     factory_resource_pairs[factory_resource_pair_index];
                 let factory = map.get_object(factory_id);
@@ -381,12 +396,14 @@ impl<'a> Iterator for Solver<'a> {
                     start_points
                 };
 
+                #[allow(unused_variables)]
                 let mut i = 1;
                 for path in Paths::new(
                     &start_points,
                     resource_index,
                     &deposits_by_type[&resource_index],
                     &map,
+                    Rc::clone(&self.rng),
                 )
                 .take(NUM_ADDITION_PATHS_PER_FACTORY_AND_RESOURCE as usize)
                 {
