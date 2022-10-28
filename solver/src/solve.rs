@@ -1,9 +1,6 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, VecDeque},
-    ops::DerefMut,
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::VecDeque, ops::DerefMut, rc::Rc};
+
+use fxhash::FxHashMap as HashMap;
 
 use common::debug;
 use model::{
@@ -49,7 +46,7 @@ pub struct Solver<'a, T> {
 impl<'a, T: Rng> Solver<'a, T> {
     pub fn new(task: &'a Task, map: &'a Map, rng: Rc<RefCell<T>>) -> Solver<'a, T> {
         let deposits_by_type: HashMap<u8, Vec<Object>> = {
-            let mut deposits: HashMap<u8, Vec<Object>> = HashMap::new();
+            let mut deposits: HashMap<u8, Vec<Object>> = HashMap::default();
             task.objects
                 .iter()
                 .cloned()
@@ -64,7 +61,7 @@ impl<'a, T: Rng> Solver<'a, T> {
         };
 
         let deposits_by_product: HashMap<u8, Vec<Object>> = {
-            let mut deposits: HashMap<u8, Vec<Object>> = HashMap::new();
+            let mut deposits: HashMap<u8, Vec<Object>> = HashMap::default();
             task.products.iter().for_each(|product| {
                 product
                     .resources
@@ -202,7 +199,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
 
             // Map from factory subtype => (map of resource type => built path)
             let mut built_paths_by_factory: HashMap<Subtype, HashMap<Subtype, Path>> =
-                HashMap::new();
+                HashMap::default();
 
             #[allow(unused_variables)]
             'combining_paths: for n_combining_paths in 0..NUM_PATH_COMBINING_ITERATIONS {
@@ -248,7 +245,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                     let mut paths_by_resource: HashMap<Subtype, Option<Paths<T>>> =
                         resources.iter().map(|resource| (*resource, None)).collect();
 
-                    let mut built_paths_by_resource: HashMap<Subtype, Path> = HashMap::new();
+                    let mut built_paths_by_resource: HashMap<Subtype, Path> = HashMap::default();
 
                     'path_building: while let Some(resource) = resources.pop_front() {
                         debug!(

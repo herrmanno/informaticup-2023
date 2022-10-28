@@ -12,6 +12,7 @@ model = { path = "../model" }
 simulator = { path = "../simulator" }
 rand = "0.8.5"
 criterion = { version = "0.4.0", features = ["html_reports"] }
+fxhash = "0.2.1"
 
 [[bench]]
 name = "benchmarks"
