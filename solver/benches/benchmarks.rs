@@ -6,17 +6,24 @@ use rand::{rngs::StdRng, SeedableRng};
 use solver::paths::Paths;
 use solver::solve::Solver;
 
-const SEED: u64 = 79128620393;
+const SEEDS: [u64; 3] = [79128620393, 1237923833, 34329582];
 
 macro_rules! run_task {
     ($criterion: ident, $path: expr, $name: expr) => {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../", $path);
         let task = Task::from_json_file(path).unwrap();
         let map = Map::from(&task);
-        let rng = Rc::new(RefCell::new(StdRng::seed_from_u64(SEED)));
-        let mut solver = Solver::new(&task, &map, rng);
+        let mut solvers = (0..3).map(|i| {
+            let rng = Rc::new(RefCell::new(StdRng::seed_from_u64(SEEDS[i])));
+            Solver::new(&task, &map, rng)
+        }).collect::<Vec<Solver<StdRng>>>();
 
-        $criterion.bench_function(concat!("solve ", $name), move |b| b.iter(|| solver.next()));
+        let mut i = 0;
+        $criterion.bench_function(concat!("solve ", $name), move |b| b.iter(|| {
+            solvers[i].next();
+            i += 1;
+            i %= 3;
+        }));
     };
 }
 
@@ -52,11 +59,18 @@ macro_rules! run_pathfinding {
             .filter(|obj| matches!(obj, Object::Deposit { .. }))
             .cloned()
             .collect::<Vec<Object>>();
-        let rng = Rc::new(RefCell::new(StdRng::seed_from_u64(SEED)));
-        let mut paths = Paths::new(&[$start_point], 0, &deposits[..], &map, rng);
+        let mut path_finders = (0..3).map(|i| {
+            let rng = Rc::new(RefCell::new(StdRng::seed_from_u64(SEEDS[i])));
+            Paths::new(&[$start_point], 0, &deposits[..], &map, rng)
+        }).collect::<Vec<Paths<StdRng>>>();
 
+        let mut i = 0;
         $criterion.bench_function(concat!("find path ", $name), move |b| {
-            b.iter(|| paths.next())
+            b.iter(|| {
+                path_finders[i].next();
+                i += 1;
+                i %= 3;
+            })
         });
     };
 }
