@@ -1,10 +1,13 @@
 use std::{
     cell::RefCell,
     cmp::Reverse,
-    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+    collections::{BinaryHeap, VecDeque},
     rc::Rc,
     time::{Duration, Instant},
 };
+
+use fxhash::FxHashMap as HashMap;
+use fxhash::FxHashSet as HashSet;
 
 use crate::path::{Path, PathID};
 use model::{
@@ -49,7 +52,7 @@ impl<T: Rng> Paths<T> {
                 .unwrap_or(u32::MAX)
         };
 
-        let paths_so_far: HashSet<PathID> = HashSet::new();
+        let paths_so_far: HashSet<PathID> = HashSet::default();
         let mut queue: BinaryHeap<Reverse<(u32, u32, Rc<Path>)>> = BinaryHeap::new();
 
         for &ingress in start_points {
@@ -225,9 +228,9 @@ impl<T: Rng> Iterator for Paths<T> {
 
 /// Create a map of shortest distances to given deposits from all reachable points on map
 fn build_distance_map_from_deposits(map: &Map, deposits: &[Object]) -> HashMap<Point, u32> {
-    let mut distances: HashMap<Point, u32> = HashMap::new();
+    let mut distances: HashMap<Point, u32> = HashMap::default();
     let mut queue: VecDeque<(u32, Point)> = VecDeque::new();
-    let mut visited: HashSet<Point> = HashSet::new();
+    let mut visited: HashSet<Point> = HashSet::default();
 
     for deposit in deposits {
         for exgress in deposit.exgresses() {

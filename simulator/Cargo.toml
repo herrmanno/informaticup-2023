@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.0.15", features = ["derive"] }
+fxhash = "0.2.1"
 model = { path = "../model" }

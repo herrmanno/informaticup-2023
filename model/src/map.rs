@@ -1,4 +1,6 @@
-use std::{collections::HashMap, fmt::Display};
+use std::fmt::Display;
+
+use fxhash::FxHashMap as HashMap;
 
 use crate::{
     coord::{neighbours, Point},
@@ -20,8 +22,8 @@ impl Map {
         let mut map = Map {
             width,
             height,
-            objects: HashMap::new(),
-            map: HashMap::new(),
+            objects: HashMap::default(),
+            map: HashMap::default(),
         };
 
         for object in objects {

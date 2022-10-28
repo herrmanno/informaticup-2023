@@ -1,7 +1,7 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet, VecDeque},
-};
+use std::{cell::RefCell, collections::VecDeque};
+
+use fxhash::FxHashMap as HashMap;
+use fxhash::FxHashSet as HashSet;
 
 use model::{
     coord::neighbours,
@@ -153,7 +153,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                 .expect("Invalid deposit: must have subtype")
                 as usize;
 
-            let mut visited_cells = HashSet::new();
+            let mut visited_cells = HashSet::default();
 
             for (x, y) in deposit.exgresses().iter() {
                 for (nx, ny) in neighbours(*x, *y) {
