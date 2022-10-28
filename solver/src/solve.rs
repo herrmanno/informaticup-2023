@@ -88,6 +88,7 @@ impl<'a, T: Rng> Solver<'a, T> {
 
         let possible_factory_locations = find_possible_factory_positions(map);
 
+        // FIXME: use (try) distance map for choosing best factory positions
         let best_factory_positions_by_factory_subtype: HashMap<
             Subtype,
             (WeightedIndex<f32>, Vec<Point>),

@@ -1,2 +1,6 @@
 [workspace]
-members = ["common", "printer", "simulator", "solver", "model"]
+members = ["common", "printer", "simulator", "solver", "model", "qa"]
+
+[profile.profiling]
+inherits = "release"
+debug = true

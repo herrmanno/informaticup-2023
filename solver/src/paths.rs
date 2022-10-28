@@ -92,39 +92,6 @@ impl<T: Rng> Paths<T> {
 impl<T: Rng> Iterator for Paths<T> {
     type Item = Path;
 
-    /* TODO: Abort search if no great improvement can be found over some time
-
-        Example:
-        00000000001111111111222222222
-        01234567890123456789012345678
-        00 --------XXXXXXXXXXXXX--------
-        01 -000000-XXXX+++++XXXX-222222-
-        02 -000000-XXXX+111+XXXX-222222-
-        03 -000000-XXXX+111+XXXX-222222-
-        04 -000000-XXXX+111+XXXX-222222-
-        05 -000000-XXXX+++++XXXX-222222-
-        06 -000000-XXXX.....XXXX-222222-
-        07 -000000-XXXX.....XXXX-222222-
-        08 --------XXXX.....XXXX--------
-        09 ........XXXX.....XXXX........
-        10 ........XXXX..X..XXXX........
-        11 ..............X..............
-        12 ........XXXX..X..XXXX........
-        13 ........XXXX+++++XXXX........
-        14 --------XXXX+000+XXXX--------
-        15 -111111-XXXX+000+XXXX-333333-
-        16 -111111-XXXX+000+XXXX-333333-
-        17 -111111-XXXX+++++XXXX-333333-
-        18 -111111-XXXX.....XXXX-333333-
-        19 -111111-XXXX.....XXXX-333333-
-        20 -111111-XXXX.....XXXX-333333-
-        21 -111111-XXXX.....XXXX-333333-
-        22 --------XXXXXXXXXXXXX--------
-
-        When trying fo find a path from factory 0 to deposit 0 or 1, there is no valid path.
-        Nevertheless, many path in the direction of deposit 2/3 will be tried.
-
-    */
     fn next(&mut self) -> Option<Self::Item> {
         let Paths {
             distances_to_deposits,
