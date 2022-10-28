@@ -8,7 +8,7 @@ pub struct Task {
     pub objects: Vec<Object>,
     pub products: Vec<Product>,
     pub turns: u32,
-    pub time: Option<u32>,
+    pub time: Option<u32>, //TODO: check if this is not optional
 }
 
 impl Task {

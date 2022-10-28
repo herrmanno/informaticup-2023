@@ -32,7 +32,10 @@ fn main() {
         task.objects.iter().cloned().map(Object::from).collect(),
     );
 
-    let runtime = Duration::from_secs(args.time.unwrap_or(100)) - now.elapsed();
+    let runtime = {
+        let runtime_in_secs = args.time.unwrap_or(task.time.unwrap_or(100) as u64);
+        Duration::from_secs(runtime_in_secs) - now.elapsed()
+    };
 
     debug!("Time bound {}s", runtime.as_secs());
 
