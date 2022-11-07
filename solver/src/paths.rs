@@ -12,8 +12,8 @@ use fxhash::FxHashSet as HashSet;
 use crate::path::{Path, PathID};
 use model::{
     coord::{neighbours, Point},
-    map::Map,
-    object::{Object, ObjectCell, ObjectType},
+    map::Maplike,
+    object::Object,
 };
 use rand::Rng;
 
@@ -24,21 +24,21 @@ const MAX_SEARCH_TIME_IN_MILLIS: u64 = 2000;
 /// Max partial paths to look at without improvement (of distance to target) before search cancellation
 const MAX_STEPS_WITHOUT_IMPROVEMENT: usize = 100;
 
-pub struct Paths<T> {
+pub struct Paths<T, M> {
     distances_to_deposits: HashMap<Point, u32>,
     paths_so_far: HashSet<PathID>,
     queue: BinaryHeap<Reverse<(u32, u32, Rc<Path>)>>,
     resource_index: u8,
-    map: Map, //TODO: borrow, instaed of own
+    map: M, //TODO: borrow, instaed of own
     rng: Rc<RefCell<T>>,
 }
 
-impl<T: Rng> Paths<T> {
+impl<T: Rng, M: Maplike> Paths<T, M> {
     pub fn new(
         start_points: &[Point],
         resource_index: u8,
         deposits: &[Object],
-        map: &Map,
+        map: &M,
         rng: Rc<RefCell<T>>,
     ) -> Self {
         let distances_to_deposits = build_distance_map_from_deposits(map, deposits);
@@ -92,7 +92,7 @@ impl<T: Rng> Paths<T> {
 
 */
 
-impl<T: Rng> Iterator for Paths<T> {
+impl<T: Rng, M: Maplike> Iterator for Paths<T, M> {
     type Item = Path;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -159,13 +159,12 @@ impl<T: Rng> Iterator for Paths<T> {
                         let mine_ingress = mine.ingress().unwrap();
                         let mine_reaches_deposit = neighbours(mine_ingress.0, mine_ingress.1)
                             .into_iter()
-                            .any(|(x, y)| match map.get_cell(x, y) {
-                                Some(ObjectCell::Exgress { id, .. }) => {
-                                    let obj = map.get_object(*id);
-                                    obj.kind() == ObjectType::Deposit
-                                        && obj.subtype() == Some(*resource_index)
-                                }
-                                _ => false,
+                            .any(|(x, y)| {
+                                matches!(
+                                    map.get_object_with_exgress_at(x, y),
+                                    Some(Object::Deposit { subtype, ..})
+                                        if subtype == resource_index
+                                )
                             });
 
                         if mine_reaches_deposit {
@@ -227,7 +226,10 @@ impl<T: Rng> Iterator for Paths<T> {
 }
 
 /// Create a map of shortest distances to given deposits from all reachable points on map
-fn build_distance_map_from_deposits(map: &Map, deposits: &[Object]) -> HashMap<Point, u32> {
+fn build_distance_map_from_deposits(
+    map: &impl Maplike,
+    deposits: &[Object],
+) -> HashMap<Point, u32> {
     let mut distances: HashMap<Point, u32> = HashMap::default();
     let mut queue: VecDeque<(u32, Point)> = VecDeque::new();
     let mut visited: HashSet<Point> = HashSet::default();

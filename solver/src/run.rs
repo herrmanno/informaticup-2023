@@ -1,6 +1,6 @@
 use crate::solve::Solver;
 use common::debug;
-use model::{map::Map, task::Task};
+use model::{map::Maplike, task::Task};
 use rand::{rngs::StdRng, SeedableRng};
 use simulator::SimulatorResult;
 use std::{
@@ -11,13 +11,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub fn run_solver(
+pub fn run_solver<M: Maplike + Sync + Send>(
     task: &Task,
-    map: &Map,
+    map: M,
     num_threads: usize,
     runtime: Duration,
     seed: Option<u64>,
-) -> Option<(SimulatorResult, Map)> {
+) -> Option<(SimulatorResult, M)> {
     if num_threads == 1 {
         run_solver_single_threaded(task, map, runtime, seed)
     } else {
@@ -25,19 +25,19 @@ pub fn run_solver(
     }
 }
 
-fn run_solver_single_threaded(
+fn run_solver_single_threaded<M: Maplike>(
     task: &Task,
-    map: &Map,
+    map: M,
     runtime: Duration,
     seed: Option<u64>,
-) -> Option<(SimulatorResult, Map)> {
+) -> Option<(SimulatorResult, M)> {
     let time_start = Instant::now();
-    let mut result: Option<(SimulatorResult, Map)> = None;
+    let mut result: Option<(SimulatorResult, M)> = None;
     let rng = match seed {
         Some(seed) => StdRng::seed_from_u64(seed),
         _ => StdRng::from_entropy(),
     };
-    let solver = Solver::new(task, map, Rc::new(RefCell::new(rng)));
+    let solver = Solver::new(task, &map, Rc::new(RefCell::new(rng)));
 
     let mut next_solution_estimate = RollingAverage::new();
     let mut last_solution = Instant::now();
@@ -60,13 +60,13 @@ fn run_solver_single_threaded(
     result
 }
 
-fn run_solver_multi_threaded(
+fn run_solver_multi_threaded<M: Maplike + Sync + Send>(
     task: &Task,
-    map: &Map,
+    map: M,
     num_threads: usize,
     runtime: Duration,
     seed: Option<u64>,
-) -> Option<(SimulatorResult, Map)> {
+) -> Option<(SimulatorResult, M)> {
     let now = Instant::now();
     // Extra time for accumulating gathered solutions TODO: find best value by empirical measurement
     let time_for_accumulation = runtime / 6;
@@ -106,7 +106,7 @@ fn run_solver_multi_threaded(
         drop(sender);
     });
 
-    let mut result: Option<(SimulatorResult, Map)> = None;
+    let mut result: Option<(SimulatorResult, M)> = None;
     while let Ok(solution) = receiver.recv() {
         result = match result {
             None => Some(solution),

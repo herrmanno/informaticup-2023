@@ -5,8 +5,8 @@ use fxhash::FxHashMap as HashMap;
 use common::debug;
 use model::{
     coord::Point,
-    map::Map,
-    object::{Coord, Object, ObjectCell, ObjectID, Subtype},
+    map::Maplike,
+    object::{Coord, Object, ObjectID, Subtype},
     task::{Product, Task},
 };
 
@@ -34,17 +34,17 @@ const NUM_PATH_COMBINING_ITERATIONS: u32 = 10;
 #[allow(dead_code)] //TODO: remove
 const NUM_MAX_PATH_FINDING_STEPS: u32 = 100_000;
 
-pub struct Solver<'a, T> {
+pub struct Solver<'a, T, M> {
     task: &'a Task,
-    original_map: &'a Map,
+    original_map: &'a M,
     deposits_by_type: HashMap<Subtype, Vec<Object>>,
     products: Vec<Product>,
     best_factory_positions_by_factory_subtype: HashMap<Subtype, (WeightedIndex<f32>, Vec<Point>)>,
     rng: Rc<RefCell<T>>,
 }
 
-impl<'a, T: Rng> Solver<'a, T> {
-    pub fn new(task: &'a Task, map: &'a Map, rng: Rc<RefCell<T>>) -> Solver<'a, T> {
+impl<'a, T: Rng, M: Maplike> Solver<'a, T, M> {
+    pub fn new(task: &'a Task, map: &'a M, rng: Rc<RefCell<T>>) -> Solver<'a, T, M> {
         let deposits_by_type: HashMap<u8, Vec<Object>> = {
             let mut deposits: HashMap<u8, Vec<Object>> = HashMap::default();
             task.objects
@@ -114,8 +114,8 @@ impl<'a, T: Rng> Solver<'a, T> {
     }
 }
 
-impl<'a, T: Rng> Iterator for Solver<'a, T> {
-    type Item = (SimulatorResult, Map);
+impl<'a, T: Rng, M: Maplike> Iterator for Solver<'a, T, M> {
+    type Item = (SimulatorResult, M);
 
     fn next(&mut self) -> Option<Self::Item> {
         let Solver {
@@ -134,7 +134,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
 
         // start iterating
 
-        let mut best_solution: Option<(SimulatorResult, Map)> = None;
+        let mut best_solution: Option<(SimulatorResult, M)> = None;
 
         #[allow(unused_variables)]
         'iterate: for n_iteration in 1.. {
@@ -242,7 +242,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
 
                     let mut processed_resources: VecDeque<Subtype> = VecDeque::new();
 
-                    let mut paths_by_resource: HashMap<Subtype, Option<Paths<T>>> =
+                    let mut paths_by_resource: HashMap<Subtype, Option<Paths<T, M>>> =
                         resources.iter().map(|resource| (*resource, None)).collect();
 
                     let mut built_paths_by_resource: HashMap<Subtype, Path> = HashMap::default();
@@ -299,7 +299,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                                 }
 
                                 if work_map
-                                    .try_insert_objects(path.objects().cloned().collect())
+                                    .insert_objects(path.objects().cloned().collect())
                                     .is_ok()
                                 {
                                     built_paths_by_resource.insert(resource, path);
@@ -408,7 +408,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                     debug!("Checking path #{}", i);
                     i += 1;
                     if map
-                        .try_insert_objects(path.objects().cloned().collect())
+                        .insert_objects(path.objects().cloned().collect())
                         .is_ok()
                     {
                         built_paths_by_resource.insert(resource_index, path);
@@ -459,15 +459,15 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
 }
 
 /// Finds all locations, at which a 5x5 factory could be legally placed
-fn find_possible_factory_positions(map: &Map) -> Vec<Point> {
+fn find_possible_factory_positions(map: &impl Maplike) -> Vec<Point> {
     let width = map.width() as Coord;
     let height = map.height() as Coord;
 
     let free_cells = {
         let mut v = vec![];
-        for y in 0..height {
-            for x in 0..width {
-                if map.get_cell(x, y).is_none() {
+        for y in 0..height - 4 {
+            for x in 0..width - 4 {
+                if map.is_empty_at_unchecked(x, y) {
                     v.push((x, y));
                 }
             }
@@ -477,32 +477,11 @@ fn find_possible_factory_positions(map: &Map) -> Vec<Point> {
 
     let mut positions = Vec::new();
 
-    'lopp_cells: for (x, y) in free_cells {
-        if x + 4 >= width || y + 4 >= height {
-            continue 'lopp_cells;
-        }
-
-        let min_x = if x == 0 { 0 } else { x - 1 };
-        let min_y = if y == 0 { 0 } else { y - 1 };
-        for dx in x..x + 5 {
-            for dy in y..y + 5 {
-                if let Some(ObjectCell::Inner { .. }) = map.get_cell(dx, dy) {
-                    continue 'lopp_cells;
-                }
-            }
-        }
-        for dx in min_x..=x + 5 {
-            for dy in [min_y, y + 5] {
-                if let Some(ObjectCell::Exgress { .. }) = map.get_cell(dx, dy) {
-                    continue 'lopp_cells;
-                }
-            }
-        }
-
-        for dy in min_y..=y + 5 {
-            for dx in [min_x, x + 5] {
-                if let Some(ObjectCell::Exgress { .. }) = map.get_cell(dx, dy) {
-                    continue 'lopp_cells;
+    'loop_cells: for (x, y) in free_cells {
+        for x in x..x + 5 {
+            for y in y..y + 5 {
+                if !map.is_empty_at_unchecked(x, y) {
+                    continue 'loop_cells;
                 }
             }
         }

@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use fxhash::FxHashMap as HashMap;
+use fxhash::FxHashSet as HashSet;
 
 use crate::{
     coord::{neighbours, Point},
@@ -8,8 +9,79 @@ use crate::{
     task::Task,
 };
 
+pub trait Maplike: std::fmt::Debug + std::fmt::Display + Clone {
+    fn width(&self) -> u8;
+
+    fn height(&self) -> u8;
+
+    fn get_object(&self, id: ObjectID) -> &Object;
+
+    fn get_objects(&self) -> Box<dyn Iterator<Item = &Object> + '_>;
+
+    fn get_object_with_ingress_at(&self, x: Coord, y: Coord) -> Option<&Object>;
+
+    fn get_object_with_exgress_at(&self, x: Coord, y: Coord) -> Option<&Object>;
+
+    fn is_empty_at(&self, x: Coord, y: Coord) -> bool;
+
+    fn is_empty_at_unchecked(&self, x: Coord, y: Coord) -> bool;
+
+    fn can_insert_object(&self, object: &Object) -> Result<(), String>;
+
+    fn can_insert_objects(&mut self, objects: Vec<&Object>) -> Result<(), String> {
+        // collected inserted object in hashset, b/c it occurs, that 'objects' contains duplicates
+        let mut inserted: HashSet<&Object> = Default::default();
+        let mut result = Ok(());
+        'insert: for object in objects.iter() {
+            if let Err(e) = self.insert_object((*object).clone()) {
+                result = Err(e);
+                break 'insert;
+            }
+            inserted.insert(object);
+        }
+
+        for &object in inserted.iter() {
+            self.remove_object(object)
+                .expect("Error while removing object inside 'can_insert_objects'");
+        }
+
+        result
+    }
+
+    fn insert_object(&mut self, object: Object) -> Result<(), String>;
+
+    fn insert_objects(&mut self, objects: Vec<Object>) -> Result<(), String> {
+        let mut inserted = 0;
+        for object in objects.iter() {
+            match self.insert_object(object.clone()) {
+                Ok(_) => {
+                    inserted += 1;
+                }
+                Err(e) => {
+                    for object in objects.iter().take(inserted) {
+                        self.remove_object(object)?;
+                    }
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn remove_object(&mut self, object: &Object) -> Result<(), String>;
+}
+
+pub fn new_map(width: u8, height: u8, objects: Vec<Object>) -> impl Maplike {
+    Map::new(width, height, objects)
+}
+
+pub fn from_task(task: &Task) -> impl Maplike {
+    Map::from(task)
+}
+
 #[derive(Debug, Clone)]
-pub struct Map {
+pub(crate) struct Map {
     width: u8,
     height: u8,
     map: HashMap<Point, ObjectCell>,
@@ -35,19 +107,43 @@ impl Map {
         map
     }
 
-    pub fn get_object(&self, id: ObjectID) -> &Object {
+    fn get_cell(&self, x: Coord, y: Coord) -> Option<&ObjectCell> {
+        self.map.get(&(x, y))
+    }
+}
+
+impl Maplike for Map {
+    fn width(&self) -> u8 {
+        self.width as u8
+    }
+
+    fn height(&self) -> u8 {
+        self.height as u8
+    }
+
+    fn get_object(&self, id: ObjectID) -> &Object {
         &self.objects[&id]
     }
 
-    pub fn get_objects(&self) -> impl Iterator<Item = &Object> {
-        self.objects.values()
+    fn get_objects(&self) -> Box<dyn Iterator<Item = &Object> + '_> {
+        Box::new(self.objects.values())
     }
 
-    pub fn get_cell(&self, x: Coord, y: Coord) -> Option<&ObjectCell> {
-        self.map.get(&(x, y))
+    fn get_object_with_ingress_at(&self, x: Coord, y: Coord) -> Option<&Object> {
+        match self.get_cell(x, y) {
+            Some(ObjectCell::Ingress { id, .. }) => Some(self.get_object(*id)),
+            _ => None,
+        }
     }
 
-    pub fn is_empty_at(&self, x: Coord, y: Coord) -> bool {
+    fn get_object_with_exgress_at(&self, x: Coord, y: Coord) -> Option<&Object> {
+        match self.get_cell(x, y) {
+            Some(ObjectCell::Exgress { id, .. }) => Some(self.get_object(*id)),
+            _ => None,
+        }
+    }
+
+    fn is_empty_at(&self, x: Coord, y: Coord) -> bool {
         x >= 0
             && y >= 0
             && x < self.width as Coord
@@ -55,109 +151,11 @@ impl Map {
             && self.get_cell(x, y).is_none()
     }
 
-    pub fn width(&self) -> u8 {
-        self.width as u8
+    fn is_empty_at_unchecked(&self, x: Coord, y: Coord) -> bool {
+        self.get_cell(x, y).is_none()
     }
 
-    pub fn height(&self) -> u8 {
-        self.height as u8
-    }
-
-    pub fn insert_object(&mut self, object: Object) -> Result<(), String> {
-        if self.objects.contains_key(&object.id()) {
-            return Ok(());
-        }
-
-        let index = self.objects.len();
-        self.can_insert_object(&object)?;
-
-        let cells = object.get_cells(index);
-        for ((x, y), cell) in cells {
-            self.map.insert((x, y), cell);
-        }
-
-        self.objects.insert(object.id(), object);
-
-        Ok(())
-    }
-
-    pub fn insert_object_unchecked(&mut self, object: Object) -> Result<(), String> {
-        if self.objects.contains_key(&object.id()) {
-            return Ok(());
-        }
-
-        let result = self.can_insert_object(&object);
-
-        let index = self.objects.len();
-
-        let cells = object.get_cells(index);
-        for ((x, y), cell) in cells {
-            self.map.insert((x, y), cell);
-        }
-
-        self.objects.insert(object.id(), object);
-
-        result
-    }
-
-    pub fn try_insert_objects(&mut self, objects: Vec<Object>) -> Result<(), String> {
-        let mut inserted = 0;
-        for object in objects.iter() {
-            match self.insert_object(object.clone()) {
-                Ok(_) => {
-                    inserted += 1;
-                }
-                Err(e) => {
-                    for object in objects.iter().take(inserted) {
-                        self.remove_object(object)?;
-                    }
-                    return Err(e);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn remove_object(&mut self, object: &Object) -> Result<(), String> {
-        if self.objects.remove(&object.id()).is_none() {
-            return Err(String::from(
-                "Cannot remove object. Map does not contain such object.",
-            ));
-        }
-
-        for (point, _) in object.get_cells(0) {
-            self.map.remove(&point);
-        }
-
-        Ok(())
-    }
-
-    pub fn force_remove_object(&mut self, object: &Object) {
-        if self.objects.remove(&object.id()).is_some() {
-            for (point, _) in object.get_cells(0) {
-                self.map.remove(&point);
-            }
-        }
-    }
-
-    pub fn can_insert_objects(&mut self, objects: Vec<&Object>) -> Result<(), String> {
-        let mut result = Ok(());
-        for object in objects.iter() {
-            if let Err(e) = self.insert_object((*object).clone()) {
-                result = Err(e);
-                break;
-            }
-        }
-
-        for object in objects {
-            self.force_remove_object(object);
-        }
-
-        result
-    }
-
-    pub fn can_insert_object(&self, object: &Object) -> Result<(), String> {
+    fn can_insert_object(&self, object: &Object) -> Result<(), String> {
         if self.objects.contains_key(&object.id()) {
             return Ok(());
         }
@@ -269,6 +267,38 @@ impl Map {
                     ));
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    fn insert_object(&mut self, object: Object) -> Result<(), String> {
+        if self.objects.contains_key(&object.id()) {
+            return Ok(());
+        }
+
+        let index = self.objects.len();
+        self.can_insert_object(&object)?;
+
+        let cells = object.get_cells(index);
+        for ((x, y), cell) in cells {
+            self.map.insert((x, y), cell);
+        }
+
+        self.objects.insert(object.id(), object);
+
+        Ok(())
+    }
+
+    fn remove_object(&mut self, object: &Object) -> Result<(), String> {
+        if self.objects.remove(&object.id()).is_none() {
+            return Err(String::from(
+                "Cannot remove object. Map does not contain such object.",
+            ));
+        }
+
+        for (point, _) in object.get_cells(0) {
+            self.map.remove(&point);
         }
 
         Ok(())

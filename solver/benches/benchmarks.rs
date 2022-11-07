@@ -1,7 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use model::{map::Map, object::Object, task::Task};
+use model::{
+    map::{from_task, Maplike},
+    object::Object,
+    task::Task,
+};
 use rand::{rngs::StdRng, SeedableRng};
 use solver::paths::Paths;
 use solver::solve::Solver;
@@ -12,13 +16,13 @@ macro_rules! run_task {
     ($criterion: ident, $path: expr, $name: expr) => {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../", $path);
         let task = Task::from_json_file(path).unwrap();
-        let map = Map::from(&task);
+        let map = from_task(&task);
         let mut solvers = (0..3)
             .map(|i| {
                 let rng = Rc::new(RefCell::new(StdRng::seed_from_u64(SEEDS[i])));
                 Solver::new(&task, &map, rng)
             })
-            .collect::<Vec<Solver<StdRng>>>();
+            .collect::<Vec<Solver<StdRng, _>>>();
 
         let mut i = 0;
         $criterion.bench_function(concat!("solve ", $name), move |b| {
@@ -57,7 +61,7 @@ macro_rules! run_pathfinding {
     ($criterion: ident, $start_point: expr, $path: expr, $name: expr) => {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../", $path);
         let task = Task::from_json_file(path).unwrap();
-        let map = Map::from(&task);
+        let map = from_task(&task);
         let deposits = map
             .get_objects()
             .filter(|obj| matches!(obj, Object::Deposit { .. }))
@@ -68,7 +72,7 @@ macro_rules! run_pathfinding {
                 let rng = Rc::new(RefCell::new(StdRng::seed_from_u64(SEEDS[i])));
                 Paths::new(&[$start_point], 0, &deposits[..], &map, rng)
             })
-            .collect::<Vec<Paths<StdRng>>>();
+            .collect::<Vec<Paths<StdRng, _>>>();
 
         let mut i = 0;
         $criterion.bench_function(concat!("find path ", $name), move |b| {

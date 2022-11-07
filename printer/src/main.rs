@@ -1,6 +1,6 @@
 mod cli;
 
-use model::{input::read_input_from_stdin, map::Map, object::Object};
+use model::{input::read_input_from_stdin, map::new_map, object::Object};
 
 fn main() {
     let (task, solution) = read_input_from_stdin().unwrap();
@@ -10,7 +10,7 @@ fn main() {
     objects.extend(task.objects.into_iter().map(Object::from));
     objects.extend(solution.0.into_iter().map(Object::from));
 
-    let map = Map::new(task.width, task.height, objects);
+    let map = new_map(task.width, task.height, objects);
 
     println!("{}", map);
 }

@@ -3,10 +3,11 @@ use std::{cell::RefCell, collections::VecDeque};
 use fxhash::FxHashMap as HashMap;
 use fxhash::FxHashSet as HashSet;
 
+use model::map::new_map;
 use model::{
     coord::neighbours,
-    map::Map,
-    object::{Object, ObjectCell, ObjectID},
+    map::Maplike,
+    object::Object,
     solution::Solution,
     task::{Product, Task},
 };
@@ -44,7 +45,7 @@ impl Ord for SimulatorResult {
 }
 
 /// Runs a simulation of a task and a given solution map
-pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
+pub fn simulate(task: &Task, map: &impl Maplike, quiet: bool) -> SimulatorResult {
     let products_by_type = task
         .products
         .iter()
@@ -54,37 +55,33 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
     let mut score = 0;
 
     // Map from deposit to its resources
-    let mut resources: HashMap<ObjectID, u32> = map
+    let mut resources: HashMap<&Object, u32> = map
         .get_objects()
         .filter_map(|obj| match obj {
             Object::Deposit { width, height, .. } => {
-                Some((obj.id(), *width as u32 * *height as u32 * 5))
+                Some((obj, *width as u32 * *height as u32 * 5))
             }
             _ => None,
         })
         .collect();
 
     // Map from objectID to amount of resources that object currently holds
-    let mut resource_distribution: HashMap<ObjectID, RefCell<Vec<u32>>> = map
+    let mut resource_distribution: HashMap<&Object, RefCell<Vec<u32>>> = map
         .get_objects()
-        .map(|obj| (obj.id(), RefCell::new(vec![0; 8])))
+        .map(|obj| (obj, RefCell::new(vec![0; 8])))
         .collect();
-
-    let objects: HashMap<ObjectID, &Object> =
-        map.get_objects().map(|obj| (obj.id(), obj)).collect();
 
     let mut best_turn = 0;
     for turn in 1..=task.turns {
         // START OF ROUND
 
-        let mut queue = objects
-            .iter()
-            .filter(|(_, object)| matches!(*object, Object::Factory { .. }))
-            .map(|(id, object)| (*id, *object))
-            .collect::<VecDeque<(ObjectID, &Object)>>();
+        let mut queue = map
+            .get_objects()
+            .filter(|object| matches!(object, &Object::Factory { .. }))
+            .collect::<VecDeque<&Object>>();
 
         // try to *pull* resources at ingresses
-        while let Some((object_id, object)) = queue.pop_front() {
+        while let Some(object) = queue.pop_front() {
             // skip mines - mines dont 'pull' their resources, because deposits push them
             // at the *end of the turn* into the mines
             if matches!(object, Object::Deposit { .. }) {
@@ -95,21 +92,19 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
             for (x, y) in object.ingresses().iter() {
                 for (nx, ny) in neighbours(*x, *y) {
-                    if let Some(ObjectCell::Exgress {
-                        id: id_outgoing, ..
-                    }) = map.get_cell(nx, ny)
-                    {
+                    if let Some(outgoing_object) = map.get_object_with_exgress_at(nx, ny) {
                         // move resources
                         for (resource_index, value) in resource_distribution
-                            .get(&object_id)
+                            .get(object)
                             .unwrap()
                             .borrow_mut()
                             .iter_mut()
                             .enumerate()
                         {
-                            let outgoing_resource =
-                                &mut resource_distribution.get(id_outgoing).unwrap().borrow_mut()
-                                    [resource_index];
+                            let outgoing_resource = &mut resource_distribution
+                                .get(outgoing_object)
+                                .unwrap()
+                                .borrow_mut()[resource_index];
 
                             let amount = match object {
                                 Object::Mine { .. } => (*outgoing_resource).min(3),
@@ -122,7 +117,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                         }
 
                         // enqueue next object
-                        queue.push_back((*id_outgoing, objects[id_outgoing]));
+                        queue.push_back(outgoing_object);
                     }
                 }
             }
@@ -136,18 +131,18 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                     x,
                     y,
                     pretty_format_resources(&resources_incoming),
-                    pretty_format_resources(&resource_distribution[&object_id].borrow()),
+                    pretty_format_resources(&resource_distribution[object].borrow()),
                 );
             }
         }
 
         // END OF ROUND
 
-        let deposits = objects
-            .iter()
-            .filter(|(_, object)| matches!(object, Object::Deposit { .. }));
+        let deposits = map
+            .get_objects()
+            .filter(|object| matches!(object, Object::Deposit { .. }));
 
-        for (deposit_id, deposit) in deposits {
+        for deposit in deposits {
             let resource_type = deposit
                 .subtype()
                 .expect("Invalid deposit: must have subtype")
@@ -163,49 +158,41 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
                     visited_cells.insert((nx, ny));
 
-                    if let Some(ObjectCell::Ingress {
-                        id: id_receiving, ..
-                    }) = map.get_cell(nx, ny)
-                    {
-                        let receiving_object = &objects[id_receiving];
+                    if let Some(Object::Mine { .. }) = map.get_object_with_ingress_at(nx, ny) {
+                        let amount = resources[deposit].min(3);
+                        let deposits_resources = resource_distribution.get_mut(deposit).unwrap();
+                        deposits_resources.borrow_mut()[resource_type] += amount;
 
-                        if let Object::Mine { .. } = receiving_object {
-                            let amount = resources[deposit_id].min(3);
-                            let deposits_resources =
-                                resource_distribution.get_mut(deposit_id).unwrap();
-                            deposits_resources.borrow_mut()[resource_type] += amount;
+                        if let Some(r) = resources.get_mut(deposit) {
+                            *r -= amount;
+                        }
 
-                            if let Some(r) = resources.get_mut(deposit_id) {
-                                *r -= amount;
-                            }
+                        let coords = deposit.coords();
 
-                            let coords = deposit.coords();
-
-                            if amount > 0 && !quiet {
-                                println!(
-                                    "{} (end): ({}, {}) takes [{}x{}], [{}x{}] available",
-                                    turn,
-                                    coords.0,
-                                    coords.1,
-                                    amount,
-                                    resource_type,
-                                    resources.get(deposit_id).unwrap(),
-                                    resource_type,
-                                );
-                            }
+                        if amount > 0 && !quiet {
+                            println!(
+                                "{} (end): ({}, {}) takes [{}x{}], [{}x{}] available",
+                                turn,
+                                coords.0,
+                                coords.1,
+                                amount,
+                                resource_type,
+                                resources.get(deposit).unwrap(),
+                                resource_type,
+                            );
                         }
                     }
                 }
             }
         }
 
-        let factories = objects
-            .iter()
-            .filter(|(_, object)| matches!(object, Object::Factory { .. }));
+        let factories = map
+            .get_objects()
+            .filter(|object| matches!(object, Object::Factory { .. }));
 
-        for (factory_id, object) in factories {
-            if let Object::Factory { subtype, .. } = object {
-                let factory_resources = resource_distribution.get_mut(factory_id).unwrap();
+        for factory in factories {
+            if let Object::Factory { subtype, .. } = factory {
+                let factory_resources = resource_distribution.get_mut(factory).unwrap();
                 if let Some(&product) = products_by_type.get(subtype) {
                     'produce_loop: loop {
                         let can_produce = product.resources.iter().enumerate().all(
@@ -220,7 +207,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                                 factory_resources.borrow_mut()[resource_index] -= amount;
                             }
 
-                            let (x, y) = object.coords();
+                            let (x, y) = factory.coords();
 
                             if !quiet {
                                 println!(
@@ -250,12 +237,12 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
     }
 }
 
-pub fn generate_map(task: &Task, solution: &Solution) -> Map {
+pub fn generate_map(task: &Task, solution: &Solution) -> impl Maplike {
     let mut objects = Vec::with_capacity(task.objects.len() + solution.0.len());
     objects.extend(task.objects.clone().into_iter().map(Object::from));
     objects.extend(solution.0.iter().cloned().map(Object::from));
 
-    Map::new(task.width, task.height, objects)
+    new_map(task.width, task.height, objects)
 }
 
 fn pretty_format_resources(resources: &[u32]) -> String {

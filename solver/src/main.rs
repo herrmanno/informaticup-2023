@@ -2,7 +2,7 @@ use clap::Parser;
 use cli::Args;
 use common::{debug, release};
 use model::{
-    cli::CliFile, input::read_input_from_stdin, map::Map, object::Object, solution::Solution,
+    cli::CliFile, input::read_input_from_stdin, map::new_map, object::Object, solution::Solution,
 };
 use std::{
     thread,
@@ -20,7 +20,7 @@ fn main() {
 
     let (task, _) = read_input_from_stdin().unwrap();
 
-    let map = Map::new(
+    let map = new_map(
         task.width,
         task.height,
         task.objects.iter().cloned().map(Object::from).collect(),
@@ -41,7 +41,7 @@ fn main() {
 
     debug!("Using {} thread(s)", num_threads);
 
-    let result = run_solver(&task, &map, num_threads, runtime, args.seed);
+    let result = run_solver(&task, map, num_threads, runtime, args.seed);
 
     if let Some(solution) = result {
         if cfg!(debug_assertions) || args.stats {

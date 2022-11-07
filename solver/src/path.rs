@@ -36,6 +36,7 @@ impl Path {
         }
     }
 
+    // FIXME: allows adding an object that is already part of the path!
     pub fn append_unchecked(object: Object, tail: &Rc<Path>) -> Path {
         Path::Segment {
             object,

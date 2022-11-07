@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
 
-use crate::map::Map;
+use crate::map::Maplike;
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 pub struct Solution(pub Vec<Object>);
@@ -18,8 +18,8 @@ impl Solution {
     }
 }
 
-impl From<&Map> for Solution {
-    fn from(map: &Map) -> Self {
+impl<T: Maplike> From<&T> for Solution {
+    fn from(map: &T) -> Self {
         let objects = map
             .get_objects()
             .filter_map(|object| match object {

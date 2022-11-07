@@ -1,8 +1,11 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use model::{map::Map, object::Object};
+use model::{
+    map::{new_map, Maplike},
+    object::Object,
+};
 
 fn map_can_insert_object(c: &mut Criterion) {
-    let map = Map::new(100, 100, vec![]);
+    let map = new_map(100, 100, vec![]);
 
     let objects = vec![
         Object::Mine {

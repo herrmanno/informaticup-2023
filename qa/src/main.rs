@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, time::Duration};
 
-use model::{map::Map, object::Object, task::Task};
+use model::{map::new_map, object::Object, task::Task};
 use simulator::SimulatorResult;
 use solver::run::run_solver;
 
@@ -25,7 +25,7 @@ macro_rules! run_task {
     ($path: expr) => {{
         let task = Task::from_json_file($path).unwrap();
 
-        let map = Map::new(
+        let map = new_map(
             task.width,
             task.height,
             task.objects.iter().cloned().map(Object::from).collect(),
@@ -36,7 +36,7 @@ macro_rules! run_task {
             .map(|seed| {
                 run_solver(
                     &task,
-                    &map,
+                    map.clone(),
                     NUM_THREADS,
                     Duration::from_secs(RUNTIME_IN_SECS),
                     Some(*seed),
