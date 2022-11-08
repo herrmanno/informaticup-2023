@@ -34,6 +34,7 @@ const NUM_PATH_COMBINING_ITERATIONS: u32 = 10;
 #[allow(dead_code)] //TODO: remove
 const NUM_MAX_PATH_FINDING_STEPS: u32 = 100_000;
 
+#[derive(Clone)]
 pub struct Solver<'a, T, M> {
     task: &'a Task,
     original_map: &'a M,
