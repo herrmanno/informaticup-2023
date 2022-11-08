@@ -6,8 +6,8 @@ use simulator::SimulatorResult;
 use solver::run::run_solver;
 
 const SEEDS: [u64; 3] = [32491274, 923410234, 12375320];
-const NUM_THREADS: usize = 2;
-const RUNTIME_IN_SECS: u64 = 10;
+const NUM_THREADS: usize = 4;
+const RUNTIME_IN_SECS: u64 = 5;
 const TASKS: [&str; 4] = [
     concat!(env!("CARGO_MANIFEST_DIR"), "/../inputs/001.task.json"),
     concat!(env!("CARGO_MANIFEST_DIR"), "/../inputs/002.task.json"),
@@ -38,7 +38,7 @@ macro_rules! run_task {
                     &task,
                     map.clone(),
                     NUM_THREADS,
-                    Duration::from_secs(RUNTIME_IN_SECS),
+                    Duration::from_millis(RUNTIME_IN_SECS),
                     Some(*seed),
                 )
                 .map(|r| TestResult::from(&r.0))
