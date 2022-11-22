@@ -73,15 +73,25 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
     let objects: HashMap<ObjectID, &Object> =
         map.get_objects().map(|obj| (obj.id(), obj)).collect();
 
+    // bfs-queue of all objects. Used to breadth-first search a resource path from factories to deposits
+    let all_objects_queue = objects
+        .iter()
+        .filter(|(_, object)| matches!(*object, Object::Factory { .. }))
+        .map(|(id, object)| (*id, *object))
+        .collect::<VecDeque<(ObjectID, &Object)>>();
+
+    // all deposits
+    let deposits = objects
+        .iter()
+        .filter(|(_, object)| matches!(object, Object::Deposit { .. }))
+        .map(|(object_id, object)| (*object_id, *object))
+        .collect::<Vec<(ObjectID, &Object)>>();
+
     let mut best_turn = 0;
     for turn in 1..=task.turns {
         // START OF ROUND
 
-        let mut queue = objects
-            .iter()
-            .filter(|(_, object)| matches!(*object, Object::Factory { .. }))
-            .map(|(id, object)| (*id, *object))
-            .collect::<VecDeque<(ObjectID, &Object)>>();
+        let mut queue = all_objects_queue.clone();
 
         // try to *pull* resources at ingresses
         while let Some((object_id, object)) = queue.pop_front() {
@@ -91,6 +101,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                 continue;
             }
 
+            // Additional tracking of moved resource; only used for pretty printing
             let mut resources_incoming = vec![0; 8];
 
             for (x, y) in object.ingresses().iter() {
@@ -143,16 +154,13 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
         // END OF ROUND
 
-        let deposits = objects
-            .iter()
-            .filter(|(_, object)| matches!(object, Object::Deposit { .. }));
-
-        for (deposit_id, deposit) in deposits {
+        for (deposit_id, deposit) in deposits.iter() {
             let resource_type = deposit
                 .subtype()
                 .expect("Invalid deposit: must have subtype")
                 as usize;
 
+            // Neighbours of a deposit's egresses (that may be ingresses of a mine)
             let mut visited_cells = HashSet::default();
 
             for (x, y) in deposit.exgresses().iter() {
@@ -192,6 +200,15 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                                     resources.get(deposit_id).unwrap(),
                                     resource_type,
                                 );
+                            }
+                        } else {
+                            #[cfg(debug_assertions)]
+                            {
+                                panic!("Non-Mine object connected to deposit")
+                            }
+                            #[cfg(not(debug_assertions))]
+                            {
+                                return SimulatorResult { score: 0, turn: 0 };
                             }
                         }
                     }
@@ -265,5 +282,5 @@ fn pretty_format_resources(resources: &[u32]) -> String {
         .filter(|(_, &value)| value > 0)
         .map(|(index, value)| format!("{}x{}", value, index))
         .reduce(|a, b| format!("{}, {}", a, b))
-        .unwrap_or_else(|| "".to_string())
+        .unwrap_or_default()
 }
