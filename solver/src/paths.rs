@@ -13,7 +13,7 @@ use crate::path::{Path, PathID};
 use model::{
     coord::{neighbours, Point},
     map::Map,
-    object::{Object, ObjectCell, ObjectType},
+    object::Object,
 };
 use rand::Rng;
 
@@ -28,7 +28,6 @@ pub struct Paths<T> {
     distances_to_deposits: HashMap<Point, u32>,
     paths_so_far: HashSet<PathID>,
     queue: BinaryHeap<Reverse<(u32, u32, Rc<Path>)>>,
-    resource_index: u8,
     map: Map, //TODO: borrow, instaed of own
     rng: Rc<RefCell<T>>,
 }
@@ -36,7 +35,6 @@ pub struct Paths<T> {
 impl<T: Rng> Paths<T> {
     pub fn new(
         start_points: &[Point],
-        resource_index: u8,
         deposits: &[Object],
         map: &Map,
         rng: Rc<RefCell<T>>,
@@ -65,7 +63,6 @@ impl<T: Rng> Paths<T> {
             distances_to_deposits,
             paths_so_far,
             queue,
-            resource_index,
             map: map.clone(),
             rng,
         }
@@ -100,9 +97,9 @@ impl<T: Rng> Iterator for Paths<T> {
             distances_to_deposits,
             paths_so_far,
             queue,
-            resource_index,
             map,
             ref rng,
+            ..
         } = self;
 
         let min_distance_to_deposits = |points: &[Point]| {
@@ -154,19 +151,16 @@ impl<T: Rng> Iterator for Paths<T> {
                     .collect::<Vec<Point>>();
 
                 for (nx, ny) in free_neighbours {
+                    // TODO: measure if early checking if object can be inserted increases performance
                     for mine_subtype in 0..=3 {
                         let mine = Object::mine_with_subtype_and_exgress_at(mine_subtype, (nx, ny));
                         let mine_ingress = mine.ingress().unwrap();
-                        let mine_reaches_deposit = neighbours(mine_ingress.0, mine_ingress.1)
-                            .into_iter()
-                            .any(|(x, y)| match map.get_cell(x, y) {
-                                Some(ObjectCell::Exgress { id, .. }) => {
-                                    let obj = map.get_object(*id);
-                                    obj.kind() == ObjectType::Deposit
-                                        && obj.subtype() == Some(*resource_index)
-                                }
-                                _ => false,
-                            });
+
+                        let mine_reaches_deposit = distances_to_deposits
+                            .get(&mine_ingress)
+                            .cloned()
+                            .unwrap_or(u32::MAX)
+                            == 0;
 
                         if mine_reaches_deposit {
                             let new_path = Path::append_unchecked(mine, &path);

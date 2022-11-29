@@ -283,7 +283,6 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                                     };
                                     *paths = Some(Paths::new(
                                         &start_points,
-                                        resource,
                                         &deposits_by_type[&resource],
                                         &map,
                                         Rc::clone(&self.rng),
@@ -399,7 +398,6 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                 let mut i = 1;
                 for path in Paths::new(
                     &start_points,
-                    resource_index,
                     &deposits_by_type[&resource_index],
                     &map,
                     Rc::clone(&self.rng),

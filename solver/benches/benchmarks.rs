@@ -74,7 +74,7 @@ macro_rules! run_pathfinding {
         let mut path_finders = (0..3)
             .map(|i| {
                 let rng = Rc::new(RefCell::new(StdRng::seed_from_u64(SEEDS[i])));
-                Paths::new(&[$start_point], 0, &deposits[..], &map, rng)
+                Paths::new(&[$start_point], &deposits[..], &map, rng)
             })
             .collect::<Vec<Paths<StdRng>>>();
 
