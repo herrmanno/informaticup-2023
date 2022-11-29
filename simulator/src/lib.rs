@@ -65,9 +65,9 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
         .collect();
 
     // Map from objectID to amount of resources that object currently holds
-    let mut resource_distribution: HashMap<ObjectID, RefCell<Vec<u32>>> = map
+    let mut resource_distribution: HashMap<ObjectID, RefCell<[u32; 8]>> = map
         .get_objects()
-        .map(|obj| (obj.id(), RefCell::new(vec![0; 8])))
+        .map(|obj| (obj.id(), RefCell::new([0; 8])))
         .collect();
 
     let objects: HashMap<ObjectID, &Object> =
@@ -147,7 +147,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
                     x,
                     y,
                     pretty_format_resources(&resources_incoming),
-                    pretty_format_resources(&resource_distribution[&object_id].borrow()),
+                    pretty_format_resources(&*resource_distribution[&object_id].borrow()),
                 );
             }
         }

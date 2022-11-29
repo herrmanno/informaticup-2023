@@ -55,9 +55,15 @@ cargo bench --bench benchmarks
 ```
 
 ### Profile
+To create profiling data:
 ```
 cargo build --profile=profiling
 valgrind --tool=callgrind ./target/profiling/solver --time x --cores y < inputs/003.task.json
+```
+
+To view profiling data (w/ [qcachegrind](https://kcachegrind.github.io/html/Home.html))
+```
+qcachegrind callgrind.out.xxxx
 ```
 
 ## Input formats
