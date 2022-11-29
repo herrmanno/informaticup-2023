@@ -1020,3 +1020,41 @@ impl From<solution::Object> for Object {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn get_cells() {
+        let (width, height) = (6i8, 7i8);
+        let object = Object::Deposit {
+            x: 0,
+            y: 0,
+            width: width as u8,
+            height: height as u8,
+            subtype: 0,
+        };
+        let cells: HashMap<Point, ObjectCell> = object.get_cells(0).into_iter().collect();
+
+        for x in 0..=4 {
+            assert!(matches!(cells[&(x, 0)], ObjectCell::Exgress { .. }));
+            assert!(matches!(
+                cells[&(x, height - 1)],
+                ObjectCell::Exgress { .. }
+            ));
+        }
+
+        for y in 0..=4 {
+            assert!(matches!(cells[&(0, y)], ObjectCell::Exgress { .. }));
+            assert!(matches!(cells[&(width - 1, y)], ObjectCell::Exgress { .. }));
+        }
+
+        for x in 1..=width - 2 {
+            for y in 1..=height - 2 {
+                assert!(matches!(cells[&(x, y)], ObjectCell::Inner { .. }));
+            }
+        }
+    }
+}
