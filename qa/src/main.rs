@@ -101,7 +101,7 @@ fn main() {
     }
 
     let result_str = serde_json::ser::to_string_pretty(&test_results).unwrap();
-    std::fs::create_dir_all(&out_dir_path).expect("Cannot create out dir");
+    std::fs::create_dir_all(out_dir_path).expect("Cannot create out dir");
     std::fs::write(&out_file_path, &result_str).expect("Cannot write results to file");
     std::fs::write(&commit_file_path, &result_str).expect("Cannot write results to file");
 
@@ -134,7 +134,7 @@ fn main() {
                         println!(
                             "{}:\n\tScore: {:.2}%\t({:.2} -> {:.2})\n\tTurns: {:.2}%\t({:.2} -> {:.2})",
                             name,
-                            score_change,
+                            score_change * 100f32,
                             a.score,
                             b.score,
                             turn_change,
