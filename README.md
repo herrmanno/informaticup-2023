@@ -2,6 +2,16 @@
 
 Solver for the [2023 InformatiCup challenge „Profit“](https://github.com/informatiCup/informatiCup2023)
 
+## Install / Run
+
+For competition, the solver shall be run as docker container
+
+### Docker build
+docker build -t <TAG> .
+
+### Docker run
+docker run -i <TAG> [OPTIONS] < <input>
+
 ## Packages
 
 The project consists of multiple packages:
