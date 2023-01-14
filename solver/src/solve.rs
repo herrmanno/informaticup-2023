@@ -235,12 +235,10 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
             'combining_paths: for n_combining_paths in 0..NUM_PATH_COMBINING_ITERATIONS {
                 debug!("Combining paths #{}", n_combining_paths);
 
-                let mut work_map = map.clone();
-
                 factory_ids.shuffle(rng.borrow_mut().deref_mut());
 
                 for &factory_id in factory_ids.iter() {
-                    let factory = map.get_object(factory_id);
+                    let factory = map.get_object(factory_id).clone(); //clone, so 'map' is borrowed for the scope of the loop
                     let subtype = factory.subtype().unwrap();
                     let product = task // TODO: use lookup table
                         .products
@@ -313,7 +311,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                                     *paths = Some(Paths::new(
                                         &start_points,
                                         &deposits_by_type[&resource],
-                                        &map,
+                                        &map, //FIXME: pre-built deposit_distance map once and pass it here because 'map' does not change during loop
                                         Rc::clone(&self.rng),
                                     ));
                                 }
@@ -327,7 +325,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                                     break; // go to backtrack
                                 }
 
-                                if work_map
+                                if map
                                     .try_insert_objects(path.objects().cloned().collect())
                                     .is_ok()
                                 {
@@ -353,10 +351,10 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                     built_paths_by_factory.insert(subtype, built_paths_by_resource);
 
                     debug!("Initial paths built");
-                    debug!("{}", work_map);
+                    debug!("{}", map);
                 }
 
-                map = work_map;
+                // map = work_map;
                 break 'combining_paths;
             }
 
@@ -432,7 +430,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                 for path in Paths::new(
                     &start_points,
                     &deposits_by_type[&resource_index],
-                    &map,
+                    &map, //FIXME: prebuilt 'deposit_distance_map' here and pass it to Paths
                     Rc::clone(&self.rng),
                 )
                 .take(NUM_ADDITION_PATHS_PER_FACTORY_AND_RESOURCE as usize)

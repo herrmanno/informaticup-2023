@@ -106,9 +106,10 @@ fn run_solver_multi_threaded(
 
     thread::scope(|scope| {
         let task = &task;
-        let map = &map;
+        // let map = &map;
 
         for i_thread in 0..num_threads {
+            let map = map.clone();
             debug!("Starting thread #{}", i_thread);
 
             #[cfg(feature = "stats")]
@@ -122,7 +123,7 @@ fn run_solver_multi_threaded(
                     _ => StdRng::from_entropy(),
                 };
                 let mut solver =
-                    Solver::new(task, map, Rc::new(RefCell::new(rng)), max_iteration_time);
+                    Solver::new(task, &map, Rc::new(RefCell::new(rng)), max_iteration_time);
                 for solution in solver.by_ref() {
                     if *(*stop_condition).read().unwrap() {
                         #[cfg(feature = "stats")]

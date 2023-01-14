@@ -298,6 +298,7 @@ impl Object {
         }
     }
 
+    //FIXME: rename -> egress
     pub fn exgress(&self) -> Option<Point> {
         match self {
             Object::Mine { x, y, subtype: 0 } => Some((x + 2, y + 1)),
@@ -323,6 +324,7 @@ impl Object {
         }
     }
 
+    //FIXME: rename -> egresses
     pub fn exgresses(&self) -> Vec<Point> {
         match self {
             Object::Deposit {
@@ -348,7 +350,7 @@ impl Object {
     }
 
     /// Calculates the fields occupied by this object
-    pub fn get_cells(&self, _index: usize) -> Vec<(Point, ObjectCell)> {
+    pub fn get_cells(&self) -> Vec<(Point, ObjectCell)> {
         use Object::*;
         use ObjectCell::*;
 
@@ -915,7 +917,7 @@ impl Object {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ObjectType {
     Obstacle,
     Deposit,
@@ -938,7 +940,7 @@ impl From<ObjectType> for String {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum ObjectCell {
     Exgress {
         kind: ObjectType,
@@ -991,7 +993,7 @@ mod test {
             height: height as u8,
             subtype: 0,
         };
-        let cells: HashMap<Point, ObjectCell> = object.get_cells(0).into_iter().collect();
+        let cells: HashMap<Point, ObjectCell> = object.get_cells().into_iter().collect();
 
         for x in 0..=4 {
             assert!(matches!(cells[&(x, 0)], ObjectCell::Exgress { .. }));

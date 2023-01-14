@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
 use fxhash::FxHashMap as HashMap;
 
@@ -10,6 +10,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct Map {
+    inner: Option<Arc<Map>>,
     width: u8,
     height: u8,
     map: HashMap<Point, ObjectCell>,
@@ -18,8 +19,11 @@ pub struct Map {
 
 impl Map {
     pub fn new(width: u8, height: u8, objects: Vec<Object>) -> Self {
-        // TODO: assert width <= 100 && height <= 100 in debug mode
+        debug_assert!(width <= 100);
+        debug_assert!(height <= 100);
+
         let mut map = Map {
+            inner: None,
             width,
             height,
             objects: HashMap::default(),
@@ -35,6 +39,16 @@ impl Map {
         map
     }
 
+    pub fn from_map(map: &Arc<Map>) -> Self {
+        Self {
+            inner: Some(Arc::clone(map)),
+            width: map.width,
+            height: map.height,
+            map: Default::default(),
+            objects: Default::default(),
+        }
+    }
+
     pub fn get_object(&self, id: ObjectID) -> &Object {
         &self.objects[&id]
     }
@@ -44,7 +58,18 @@ impl Map {
     }
 
     pub fn get_cell(&self, x: Coord, y: Coord) -> Option<&ObjectCell> {
-        self.map.get(&(x, y))
+        self.map.get(&(x, y)).or_else(|| match self.inner {
+            Some(ref inner) => inner.get_cell(x, y),
+            _ => None,
+        })
+    }
+
+    pub fn contains_object(&self, object_id: &ObjectID) -> bool {
+        self.objects.contains_key(object_id)
+            || match self.inner {
+                Some(ref inner) => inner.contains_object(object_id),
+                None => false,
+            }
     }
 
     pub fn is_empty_at(&self, x: Coord, y: Coord) -> bool {
@@ -64,14 +89,13 @@ impl Map {
     }
 
     pub fn insert_object(&mut self, object: Object) -> Result<(), String> {
-        if self.objects.contains_key(&object.id()) {
+        if self.contains_object(&object.id()) {
             return Ok(());
         }
 
-        let index = self.objects.len();
         self.can_insert_object(&object)?;
 
-        let cells = object.get_cells(index);
+        let cells = object.get_cells();
         for ((x, y), cell) in cells {
             self.map.insert((x, y), cell);
         }
@@ -81,23 +105,22 @@ impl Map {
         Ok(())
     }
 
-    pub fn insert_object_unchecked(&mut self, object: Object) -> Result<(), String> {
+    ///Inserts an object w/o calling [can_insert_object]
+    ///
+    /// Returns `true` if this map did not contain `object` already
+    pub fn insert_object_unchecked(&mut self, object: Object) -> bool {
         if self.objects.contains_key(&object.id()) {
-            return Ok(());
+            return false;
         }
 
-        let result = self.can_insert_object(&object);
-
-        let index = self.objects.len();
-
-        let cells = object.get_cells(index);
+        let cells = object.get_cells();
         for ((x, y), cell) in cells {
             self.map.insert((x, y), cell);
         }
 
         self.objects.insert(object.id(), object);
 
-        result
+        true
     }
 
     pub fn try_insert_objects(&mut self, objects: Vec<Object>) -> Result<(), String> {
@@ -119,29 +142,30 @@ impl Map {
         Ok(())
     }
 
-    pub fn remove_object(&mut self, object: &Object) -> Result<(), String> {
+    fn remove_object(&mut self, object: &Object) -> Result<(), String> {
         if self.objects.remove(&object.id()).is_none() {
             return Err(String::from(
                 "Cannot remove object. Map does not contain such object.",
             ));
         }
 
-        for (point, _) in object.get_cells(0) {
+        for (point, _) in object.get_cells() {
             self.map.remove(&point);
         }
 
         Ok(())
     }
 
-    pub fn force_remove_object(&mut self, object: &Object) {
+    fn force_remove_object(&mut self, object: &Object) {
         if self.objects.remove(&object.id()).is_some() {
-            for (point, _) in object.get_cells(0) {
+            for (point, _) in object.get_cells() {
                 self.map.remove(&point);
             }
         }
     }
 
-    pub fn can_insert_objects(&mut self, objects: Vec<&Object>) -> Result<(), String> {
+    #[deprecated]
+    fn can_insert_objects(&mut self, objects: Vec<&Object>) -> Result<(), String> {
         let mut result = Ok(());
         for object in objects.iter() {
             if let Err(e) = self.insert_object((*object).clone()) {
@@ -157,21 +181,21 @@ impl Map {
         result
     }
 
+    /// Checks if an object can be inserted onto this map
     pub fn can_insert_object(&self, object: &Object) -> Result<(), String> {
-        if self.objects.contains_key(&object.id()) {
+        if self.contains_object(&object.id()) {
             return Ok(());
         }
 
         let width = self.width();
         let height = self.height();
-        let index = self.objects.len();
 
         // check that no part of object is outside map or placed over another building
-        let cells = object.get_cells(index);
+        let cells = object.get_cells();
         for ((x, y), cell) in cells.iter() {
             if *x < 0 || *y < 0 || *x >= width as Coord || *y >= height as Coord {
                 return Err(format!("Cannot insert cell at {:?}", (x, y)));
-            } else if let Some(old_cell) = self.map.get(&(*x, *y)) {
+            } else if let Some(old_cell) = self.get_cell(*x, *y) {
                 if !(matches!(
                     old_cell,
                     ObjectCell::Inner {
@@ -195,7 +219,7 @@ impl Map {
             }
         }
 
-        // check that the new part's exgress does not touch a deposits ingress, unless it is a mine
+        // check that the new part's ingress does not touch a deposits egress, unless it is a mine
         if object.kind() != ObjectType::Mine {
             for (x, y) in object.ingresses() {
                 let neighbour_to_deposit = neighbours(x, y).iter().any(|coord| {
@@ -216,7 +240,7 @@ impl Map {
             }
         }
 
-        // check that the new part's exgress does not touch multiple ingresses
+        // check that the new part's egress does not touch multiple ingresses
         if object.kind() == ObjectType::Conveyor
             || object.kind() == ObjectType::Combiner
             || object.kind() == ObjectType::Mine
@@ -275,6 +299,16 @@ impl Map {
     }
 }
 
+impl std::hash::Hash for Map {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for x in 0..=self.width {
+            for y in 0..=self.height {
+                self.get_cell(x as i8, y as i8).hash(state)
+            }
+        }
+    }
+}
+
 impl Display for Map {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.map.is_empty() {
@@ -314,6 +348,7 @@ impl From<&Task> for Map {
         Map::new(task.width, task.height, objects)
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

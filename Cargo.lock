@@ -620,6 +620,7 @@ dependencies = [
  "common",
  "criterion",
  "fxhash",
+ "lazy_static",
  "model",
  "rand",
  "simulator",

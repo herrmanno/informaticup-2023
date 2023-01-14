@@ -1,14 +1,15 @@
 use std::{
     cell::RefCell,
-    cmp::Reverse,
-    collections::{BinaryHeap, VecDeque},
+    collections::BinaryHeap,
     rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use fxhash::FxHashMap as HashMap;
 use fxhash::FxHashSet as HashSet;
 
+use crate::distances::get_distances;
 use crate::path::{Path, PathID};
 use model::{
     coord::{neighbours, Point},
@@ -24,11 +25,40 @@ const MAX_SEARCH_TIME_IN_MILLIS: u64 = 500;
 /// Max partial paths to look at without improvement (of distance to target) before search cancellation
 const MAX_STEPS_WITHOUT_IMPROVEMENT: usize = 100;
 
+struct PathSearchState {
+    distance: u32,
+    path_length: u32,
+    path: Rc<Path>,
+    map_ref: Arc<Map>,
+}
+
+impl PartialEq for PathSearchState {
+    fn eq(&self, other: &Self) -> bool {
+        self.path.eq(&other.path)
+    }
+}
+
+impl Eq for PathSearchState {}
+
+impl PartialOrd for PathSearchState {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PathSearchState {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .distance
+            .cmp(&self.distance)
+            .then(other.path_length.cmp(&self.path_length))
+    }
+}
+
 pub struct Paths<T> {
-    distances_to_deposits: HashMap<Point, u32>,
+    distances_to_deposits: Arc<HashMap<Point, u32>>,
     paths_so_far: HashSet<PathID>,
-    queue: BinaryHeap<Reverse<(u32, u32, Rc<Path>)>>,
-    map: Map, //TODO: borrow, instaed of own
+    queue: BinaryHeap<PathSearchState>,
     rng: Rc<RefCell<T>>,
 }
 
@@ -39,7 +69,7 @@ impl<T: Rng> Paths<T> {
         map: &Map,
         rng: Rc<RefCell<T>>,
     ) -> Self {
-        let distances_to_deposits = build_distance_map_from_deposits(map, deposits);
+        let distances_to_deposits = get_distances(map, deposits);
 
         let min_distance_to_deposits = |points: &[Point]| {
             points
@@ -51,33 +81,29 @@ impl<T: Rng> Paths<T> {
         };
 
         let paths_so_far: HashSet<PathID> = HashSet::default();
-        let mut queue: BinaryHeap<Reverse<(u32, u32, Rc<Path>)>> = BinaryHeap::new();
 
+        let mut queue: BinaryHeap<PathSearchState> = BinaryHeap::new();
+
+        let map_ref = Arc::new(map.clone());
         for &ingress in start_points {
             let path = Path::from_starting_points(vec![ingress]);
             let distance = min_distance_to_deposits(&neighbours(ingress.0, ingress.1));
-            queue.push(Reverse((distance, 0, Rc::new(path))))
+            queue.push(PathSearchState {
+                distance,
+                path_length: 0,
+                path: Rc::new(path),
+                map_ref: Arc::clone(&map_ref),
+            });
         }
 
         Paths {
             distances_to_deposits,
             paths_so_far,
             queue,
-            map: map.clone(),
             rng,
         }
     }
 }
-
-/*
-    TODO: check if using a kind of 'Map(Reference)' as state is faster than using paths.
-
-    Background:
-    On every step the whole path must be inserted into a map to check it is valid. When using
-    a kind of Map, with a partial path already inserted, one must only check the path's new
-    segment for validity.
-
-*/
 
 impl<T: Rng> Iterator for Paths<T> {
     type Item = Path;
@@ -87,7 +113,6 @@ impl<T: Rng> Iterator for Paths<T> {
             distances_to_deposits,
             paths_so_far,
             queue,
-            map,
             ref rng,
             ..
         } = self;
@@ -106,7 +131,13 @@ impl<T: Rng> Iterator for Paths<T> {
 
         let mut i: usize = 0;
         let mut min_distance: Option<(u32, usize)> = None;
-        while let Some(Reverse((path_distance, path_length, path))) = queue.pop() {
+        while let Some(PathSearchState {
+            distance: path_distance,
+            path_length,
+            path,
+            map_ref,
+        }) = queue.pop()
+        {
             i += 1;
 
             if timer.elapsed() > Duration::from_millis(MAX_SEARCH_TIME_IN_MILLIS) {
@@ -129,7 +160,7 @@ impl<T: Rng> Iterator for Paths<T> {
 
             for (x, y) in path.heads() {
                 /*  LOGIC
-                    1. try if target is reached if a mine is placed
+                    1. check if target is reached by placing a mine
                     2. try using long conveyor
                     3. try using short conveyor
                     4. try using combiner
@@ -137,7 +168,7 @@ impl<T: Rng> Iterator for Paths<T> {
 
                 let free_neighbours = neighbours(x, y)
                     .into_iter()
-                    .filter(|(x, y)| map.is_empty_at(*x, *y))
+                    .filter(|(x, y)| map_ref.is_empty_at(*x, *y))
                     .collect::<Vec<Point>>();
 
                 for (nx, ny) in free_neighbours {
@@ -152,21 +183,11 @@ impl<T: Rng> Iterator for Paths<T> {
                             .unwrap_or(u32::MAX)
                             == 0;
 
-                        if mine_reaches_deposit {
+                        if mine_reaches_deposit && map_ref.can_insert_object(&mine).is_ok() {
                             let new_path = Path::append(mine, &path);
-                            match map.can_insert_objects(new_path.objects().collect()) {
-                                Ok(_) => {
-                                    let new_path_id = new_path.id();
-                                    if !paths_so_far.contains(&new_path_id) {
-                                        paths_so_far.insert(new_path_id);
-
-                                        // Try to reuse path ?!
-                                        queue.push(Reverse((path_distance, path_length, path)));
-
-                                        return Some(new_path);
-                                    }
-                                }
-                                Err(_e) => {}
+                            let new_path_id = new_path.id();
+                            if paths_so_far.insert(new_path_id) {
+                                return Some(new_path);
                             }
                         }
                     }
@@ -177,13 +198,19 @@ impl<T: Rng> Iterator for Paths<T> {
                             (nx, ny),
                         );
                         let ingress = conveyor.ingress().unwrap();
-                        let new_path = Path::append(conveyor, &path);
-                        match map.can_insert_objects(new_path.objects().collect()) {
-                            Ok(_) => {
-                                let distance = min_distance_to_deposits(&[ingress]);
-                                queue.push(Reverse((distance, path_length, Rc::new(new_path))));
-                            }
-                            Err(_e) => {}
+
+                        if map_ref.can_insert_object(&conveyor).is_ok() {
+                            let new_path = Path::append(conveyor.clone(), &path);
+                            let distance = min_distance_to_deposits(&[ingress]);
+                            let mut new_map_ref = Map::from_map(&map_ref);
+                            new_map_ref.insert_object_unchecked(conveyor);
+
+                            queue.push(PathSearchState {
+                                distance,
+                                path_length,
+                                path: Rc::new(new_path),
+                                map_ref: Arc::new(new_map_ref),
+                            })
                         }
                     }
 
@@ -193,13 +220,19 @@ impl<T: Rng> Iterator for Paths<T> {
                             (nx, ny),
                         );
                         let ingresses = combiner.ingresses();
-                        let new_path = Path::append(combiner, &path);
-                        match map.can_insert_objects(new_path.objects().collect()) {
-                            Ok(_) => {
-                                let distance = min_distance_to_deposits(&ingresses);
-                                queue.push(Reverse((distance, path_length, Rc::new(new_path))));
-                            }
-                            Err(_e) => {}
+
+                        if map_ref.can_insert_object(&combiner).is_ok() {
+                            let new_path = Path::append(combiner.clone(), &path);
+                            let distance = min_distance_to_deposits(&ingresses);
+                            let mut new_map_ref = Map::from_map(&map_ref);
+                            new_map_ref.insert_object_unchecked(combiner);
+
+                            queue.push(PathSearchState {
+                                distance,
+                                path_length,
+                                path: Rc::new(new_path),
+                                map_ref: Arc::new(new_map_ref),
+                            })
                         }
                     }
                 }
@@ -208,41 +241,4 @@ impl<T: Rng> Iterator for Paths<T> {
 
         None
     }
-}
-
-/// Create a map of shortest distances to given deposits from all reachable points on map
-fn build_distance_map_from_deposits(map: &Map, deposits: &[Object]) -> HashMap<Point, u32> {
-    let mut distances: HashMap<Point, u32> = HashMap::default();
-    let mut queue: VecDeque<(u32, Point)> = VecDeque::new();
-    let mut visited: HashSet<Point> = HashSet::default();
-
-    for deposit in deposits {
-        for exgress in deposit.exgresses() {
-            for position in neighbours(exgress.0, exgress.1) {
-                if !visited.contains(&position) {
-                    visited.insert(position);
-                    if map.is_empty_at(position.0, position.1) {
-                        queue.push_back((0, position));
-                    }
-                }
-            }
-        }
-    }
-
-    while let Some((distance, (x, y))) = queue.pop_front() {
-        distances
-            .entry((x, y))
-            .and_modify(|old_distance| *old_distance = (*old_distance).min(distance))
-            .or_insert(distance);
-        for position in neighbours(x, y) {
-            if !visited.contains(&position) {
-                visited.insert(position);
-                if map.is_empty_at(position.0, position.1) {
-                    queue.push_back((distance + 1, position));
-                }
-            }
-        }
-    }
-
-    distances
 }

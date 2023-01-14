@@ -78,11 +78,11 @@ impl Path {
 
     /// Check if new object may be added to path legally
     fn check_object(&self, object: &Object) -> Result<(), String> {
-        let cells = object.get_cells(0);
+        let cells = object.get_cells();
 
         for obj in self.objects() {
             for ((x, y), cell) in cells.iter() {
-                for ((dx, dy), dcell) in obj.get_cells(0) {
+                for ((dx, dy), dcell) in obj.get_cells() {
                     if *x == dx && *y == dy {
                         match (cell, dcell) {
                             (
