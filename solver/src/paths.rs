@@ -18,7 +18,7 @@ use model::{
 use rand::Rng;
 
 /// Max time to search for the next path
-const MAX_SEARCH_TIME_IN_MILLIS: u64 = 2000;
+const MAX_SEARCH_TIME_IN_MILLIS: u64 = 500;
 
 //TODO: investigate if 100 (current value) is large enough for succesful pathfinding on big maps.
 /// Max partial paths to look at without improvement (of distance to target) before search cancellation
@@ -66,16 +66,6 @@ impl<T: Rng> Paths<T> {
             map: map.clone(),
             rng,
         }
-    }
-
-    #[allow(dead_code)] //TODO: remove
-    pub fn is_empty(&self) -> bool {
-        self.queue.is_empty()
-    }
-
-    #[allow(dead_code)] //TODO: remove
-    pub fn clear(&mut self) {
-        self.queue.clear();
     }
 }
 
@@ -163,7 +153,7 @@ impl<T: Rng> Iterator for Paths<T> {
                             == 0;
 
                         if mine_reaches_deposit {
-                            let new_path = Path::append_unchecked(mine, &path);
+                            let new_path = Path::append(mine, &path);
                             match map.can_insert_objects(new_path.objects().collect()) {
                                 Ok(_) => {
                                     let new_path_id = new_path.id();
@@ -187,7 +177,7 @@ impl<T: Rng> Iterator for Paths<T> {
                             (nx, ny),
                         );
                         let ingress = conveyor.ingress().unwrap();
-                        let new_path = Path::append_unchecked(conveyor, &path);
+                        let new_path = Path::append(conveyor, &path);
                         match map.can_insert_objects(new_path.objects().collect()) {
                             Ok(_) => {
                                 let distance = min_distance_to_deposits(&[ingress]);
@@ -203,7 +193,7 @@ impl<T: Rng> Iterator for Paths<T> {
                             (nx, ny),
                         );
                         let ingresses = combiner.ingresses();
-                        let new_path = Path::append_unchecked(combiner, &path);
+                        let new_path = Path::append(combiner, &path);
                         match map.can_insert_objects(new_path.objects().collect()) {
                             Ok(_) => {
                                 let distance = min_distance_to_deposits(&ingresses);

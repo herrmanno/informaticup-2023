@@ -22,21 +22,8 @@ impl Path {
         }
     }
 
-    /// Appends an object to an existing path to create a new path
-    ///
-    /// Returns an error if the new object interferes with any object of the path
-    #[allow(dead_code)] //TODO: remove
-    pub fn append_checked(object: Object, tail: &Rc<Path>) -> Result<Path, String> {
-        match tail.check_object(&object) {
-            Ok(_) => Ok(Path::Segment {
-                object,
-                tail: Rc::clone(tail),
-            }),
-            Err(e) => Err(e),
-        }
-    }
-
-    pub fn append_unchecked(object: Object, tail: &Rc<Path>) -> Path {
+    /// Appends `object` to this path to create a new Path
+    pub fn append(object: Object, tail: &Rc<Path>) -> Path {
         Path::Segment {
             object,
             tail: Rc::clone(tail),

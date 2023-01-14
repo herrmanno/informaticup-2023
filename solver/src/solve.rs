@@ -393,7 +393,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                     .entry(factory.subtype().unwrap())
                     .or_default();
                 let start_points = {
-                    let mut start_points = factory.ingresses().to_vec();
+                    let mut start_points = factory.ingresses();
                     for path in built_paths_by_resource.values() {
                         for ingress in path.all_ingresses() {
                             start_points.push(ingress);

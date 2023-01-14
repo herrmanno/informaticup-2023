@@ -56,11 +56,11 @@ impl Map {
     }
 
     pub fn width(&self) -> u8 {
-        self.width as u8
+        self.width
     }
 
     pub fn height(&self) -> u8 {
-        self.height as u8
+        self.height
     }
 
     pub fn insert_object(&mut self, object: Object) -> Result<(), String> {

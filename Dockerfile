@@ -1,8 +1,6 @@
 FROM rust:1.66.1
 WORKDIR /
 
-# TODO: cache rust dependencies (or at least crates.io index) to speed up builds
-
 # Copy workspace cargo files
 COPY Cargo.* ./
 
