@@ -43,24 +43,32 @@ fn main() {
 
     let result = run_solver(&task, &map, num_threads, runtime, args.seed);
 
-    if let Some(solution) = result {
+    if let Some(result) = result {
+        #[cfg(feature = "stats")]
+        {
+            println!(
+                "Calculated {} solutions per second",
+                result.solutions_per_second
+            );
+        }
+
         if cfg!(debug_assertions) || args.stats {
-            println!("{:?}", solution.0);
+            println!("{:?}", result.result);
         }
 
         if args.print {
-            println!("{}", solution.1);
+            println!("{}", result.map);
         }
 
         if cfg!(debug_assertions) || args.output_format() == OutputFormat::Cli {
             println!(
                 "{}",
-                CliFile::new(task, Solution::from(&solution.1))
+                CliFile::new(task, Solution::from(&result.map))
                     .to_json_string()
                     .unwrap()
             );
         } else {
-            println!("{}", Solution::from(&solution.1).to_json_string().unwrap());
+            println!("{}", Solution::from(&result.map).to_json_string().unwrap());
         }
     } else {
         debug!("No solution found");

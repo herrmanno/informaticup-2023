@@ -11,13 +11,26 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(not(feature = "stats"))]
+pub struct RunnerResult {
+    pub result: SimulatorResult,
+    pub map: Map,
+}
+
+#[cfg(feature = "stats")]
+pub struct RunnerResult {
+    pub result: SimulatorResult,
+    pub map: Map,
+    pub solutions_per_second: u128,
+}
+
 pub fn run_solver(
     task: &Task,
     map: &Map,
     num_threads: usize,
     runtime: Duration,
     seed: Option<u64>,
-) -> Option<(SimulatorResult, Map)> {
+) -> Option<RunnerResult> {
     if num_threads == 1 {
         run_solver_single_threaded(task, map, runtime, seed)
     } else {
@@ -30,18 +43,18 @@ fn run_solver_single_threaded(
     map: &Map,
     runtime: Duration,
     seed: Option<u64>,
-) -> Option<(SimulatorResult, Map)> {
+) -> Option<RunnerResult> {
     let time_start = Instant::now();
     let mut result: Option<(SimulatorResult, Map)> = None;
     let rng = match seed {
         Some(seed) => StdRng::seed_from_u64(seed),
         _ => StdRng::from_entropy(),
     };
-    let solver = Solver::new(task, map, Rc::new(RefCell::new(rng)));
+    let mut solver = Solver::new(task, map, Rc::new(RefCell::new(rng)));
 
     let mut next_solution_estimate = RollingAverage::new();
     let mut last_solution = Instant::now();
-    for solution in solver {
+    for solution in solver.by_ref() {
         let now = Instant::now();
         next_solution_estimate.add(now.duration_since(last_solution));
         last_solution = now;
@@ -57,7 +70,20 @@ fn run_solver_single_threaded(
         }
     }
 
-    result
+    #[cfg(feature = "stats")]
+    {
+        let solutions_per_second =
+            1000 * solver.get_num_solutions() as u128 / time_start.elapsed().as_millis();
+        result.map(|(result, map)| RunnerResult {
+            result,
+            map,
+            solutions_per_second,
+        })
+    }
+    #[cfg(not(feature = "stats"))]
+    {
+        result.map(|(result, map)| RunnerResult { result, map })
+    }
 }
 
 fn run_solver_multi_threaded(
@@ -66,10 +92,13 @@ fn run_solver_multi_threaded(
     num_threads: usize,
     runtime: Duration,
     seed: Option<u64>,
-) -> Option<(SimulatorResult, Map)> {
-    let now = Instant::now();
+) -> Option<RunnerResult> {
+    let time_start = Instant::now();
     // Extra time for accumulating gathered solutions TODO: find best value by empirical measurement
     let time_for_accumulation = runtime / 6;
+
+    #[cfg(feature = "stats")]
+    let num_solutions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     let (sender, receiver) = mpsc::channel();
     let stop_condition = Arc::new(RwLock::new(false));
@@ -81,6 +110,9 @@ fn run_solver_multi_threaded(
         for i_thread in 0..num_threads {
             debug!("Starting thread #{}", i_thread);
 
+            #[cfg(feature = "stats")]
+            let num_solutions = Arc::clone(&num_solutions);
+
             let sender = sender.clone();
             let stop_condition = Arc::clone(&stop_condition);
             scope.spawn(move || {
@@ -88,9 +120,17 @@ fn run_solver_multi_threaded(
                     Some(seed) => StdRng::seed_from_u64(seed.wrapping_add(i_thread as u64)),
                     _ => StdRng::from_entropy(),
                 };
-                let solver = Solver::new(task, map, Rc::new(RefCell::new(rng)));
-                for solution in solver {
+                let mut solver = Solver::new(task, map, Rc::new(RefCell::new(rng)));
+                for solution in solver.by_ref() {
                     if *(*stop_condition).read().unwrap() {
+                        #[cfg(feature = "stats")]
+                        {
+                            num_solutions.fetch_add(
+                                solver.get_num_solutions(),
+                                std::sync::atomic::Ordering::AcqRel,
+                            );
+                        }
+
                         break;
                     }
                     sender
@@ -100,7 +140,7 @@ fn run_solver_multi_threaded(
             });
         }
 
-        thread::sleep(runtime - now.elapsed() - time_for_accumulation);
+        thread::sleep(runtime - time_start.elapsed() - time_for_accumulation);
         *(*stop_condition).write().unwrap() = true;
         // drop sender, so receiving results will terminate after last result was read from pipe
         drop(sender);
@@ -115,7 +155,21 @@ fn run_solver_multi_threaded(
         };
     }
 
-    result
+    #[cfg(feature = "stats")]
+    {
+        let solutions_per_second = 1000
+            * num_solutions.load(std::sync::atomic::Ordering::Acquire) as u128
+            / time_start.elapsed().as_millis();
+        result.map(|(result, map)| RunnerResult {
+            result,
+            map,
+            solutions_per_second,
+        })
+    }
+    #[cfg(not(feature = "stats"))]
+    {
+        result.map(|(result, map)| RunnerResult { result, map })
+    }
 }
 
 struct RollingAverage {

@@ -42,6 +42,16 @@ pub struct Solver<'a, T> {
     products: Vec<Product>,
     best_factory_positions_by_factory_subtype: HashMap<Subtype, (WeightedIndex<f32>, Vec<Point>)>,
     rng: Rc<RefCell<T>>,
+    #[allow(unused)] //only used if feature 'stats' is active
+    num_solutions: usize,
+}
+
+impl<'a, T> Solver<'a, T> {
+    #[cfg(feature = "stats")]
+    /// Returns the total number of solutions produced so far
+    pub fn get_num_solutions(&self) -> usize {
+        self.num_solutions
+    }
 }
 
 impl<'a, T: Rng> Solver<'a, T> {
@@ -111,6 +121,7 @@ impl<'a, T: Rng> Solver<'a, T> {
             products,
             best_factory_positions_by_factory_subtype,
             rng,
+            num_solutions: 0,
         }
     }
 }
@@ -130,8 +141,6 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
         } = self;
 
         debug!("{}", original_map);
-
-        // let rng = self.rng;
 
         // start iterating
 
@@ -303,7 +312,6 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                                     .is_ok()
                                 {
                                     built_paths_by_resource.insert(resource, path);
-                                    // debug!("{}", work_map);
                                     processed_resources.push_back(resource);
                                     continue 'path_building;
                                 }
@@ -365,7 +373,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
             debug!("Building additional paths");
 
             // TODO: investigate optimal number of failed tries per factory/resource tuple
-            let max_additional_path_failures = factory_ids.len() * 3;
+            let max_additional_path_failures = factory_ids.len() * 10;
             let mut additional_path_failures = 0;
             'additional_paths: loop {
                 let factory_resource_pair_index =
@@ -419,12 +427,8 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                 // Reduce weight of current factory,resource tuple
                 let new_weight = &mut factory_resource_weights_raw[factory_resource_pair_index];
                 *new_weight /= 2; //TODO: try to use some kind of exponential backoff
-                if factory_resource_weights
-                    .update_weights(&[(factory_resource_pair_index, new_weight)])
-                    .is_err()
-                {
-                    break 'additional_paths;
-                }
+                let _ = factory_resource_weights
+                    .update_weights(&[(factory_resource_pair_index, new_weight)]);
 
                 additional_path_failures += 1;
 
@@ -437,6 +441,11 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
             debug!("{}", map);
 
             let map_score = simulate(task, &map, true);
+
+            #[cfg(feature = "stats")]
+            {
+                self.num_solutions += 1;
+            }
 
             if let Some((result, _)) = &best_solution {
                 if map_score > *result {

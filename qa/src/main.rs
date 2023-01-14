@@ -41,7 +41,7 @@ macro_rules! run_task {
                     Duration::from_secs(RUNTIME_IN_SECS),
                     Some(*seed),
                 )
-                .map(|r| TestResult::from(&r.0))
+                .map(|r| TestResult::from(&r.result))
             })
             .collect::<Vec<Option<TestResult>>>();
 
