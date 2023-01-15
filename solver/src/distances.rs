@@ -13,8 +13,11 @@ use model::{
     object::Object,
 };
 
+/// Map from (hash(map), hash(deposits)) => distance map
+type DistanceCache = HashMap<(u64, u64), Arc<HashMap<Point, u32>>>;
+
 lazy_static! {
-    static ref DISTANCES_CACHE: Mutex<HashMap<u64, Arc<HashMap<Point, u32>>>> = Default::default();
+    static ref DISTANCES_CACHE: Mutex<DistanceCache> = Default::default();
 }
 
 /// Create a map of shortest distances to given deposits from all reachable points on map
@@ -26,10 +29,15 @@ pub(crate) fn get_distances(map: &Map, deposits: &[Object]) -> Arc<HashMap<Point
         map.hash(&mut hasher);
         hasher.finish()
     };
+    let deposits_hash = {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        deposits.hash(&mut hasher);
+        hasher.finish()
+    };
 
     let mut cache = DISTANCES_CACHE.lock().unwrap();
     let distances = cache
-        .entry(map_hash)
+        .entry((map_hash, deposits_hash))
         .or_insert_with(|| Arc::new(create_distances(map, deposits)));
 
     Arc::clone(distances)

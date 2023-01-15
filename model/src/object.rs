@@ -19,7 +19,7 @@ pub type ObjectID = u64;
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Object {
     #[serde(rename = "obstacle")]
     Obstacle {

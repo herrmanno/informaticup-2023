@@ -155,7 +155,7 @@ fn run_solver_multi_threaded(
     debug!("Accumulating results");
 
     let mut result: Option<(SimulatorResult, Map)> = None;
-    while let Ok(solution) = receiver.recv() {
+    while let Ok(solution) = receiver.recv_timeout(Duration::from_millis(100)) {
         result = match result {
             None => Some(solution),
             Some(result) if solution.0 > result.0 => Some(solution),

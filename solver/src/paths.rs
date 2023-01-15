@@ -21,11 +21,32 @@ use rand::Rng;
 /// Max time to search for the next path
 const MAX_SEARCH_TIME_IN_MILLIS: u64 = 500;
 
-//TODO: investigate if 100 (current value) is large enough for succesful pathfinding on big maps.
 /// Max partial paths to look at without improvement (of distance to target) before search cancellation
-const MAX_STEPS_WITHOUT_IMPROVEMENT: usize = 100;
+///
+/// Is used to abort paths that probably overshoot and no longer can reach the target.
+///
+/// This approach evidently *may* lead to paths being aborted that may reach the target (soon), but
+/// will increase overall performance by pruning bad paths early.
+const MAX_STEPS_WITHOUT_IMPROVEMENT: usize = 10;
+
+/// Max manhattan distance a path's head may have from the target
+///
+/// Used to discard paths that have gone wild and probably don't have a change to reach the target anymoe
+///
+/// This approach evidently *may* lead to paths being aborted that may reach the target (soon), but
+/// will increase overall performance by pruning bad paths early.
+// const MAX_PATH_DISTANCE: u32 = 100;
+
+/// Max length (as number of objects) any path may reach
+///
+/// Used to discard paths that have gone wild and probably don't have a change to reach the target anymoe
+///
+/// This approach evidently *may* lead to paths being aborted that may reach the target (soon), but
+/// will increase overall performance by pruning bad paths early.
+// const MAX_PATH_LENGTH: u32 = 100;
 
 struct PathSearchState {
+    start_distance: u32,
     distance: u32,
     path_length: u32,
     path: Rc<Path>,
@@ -77,7 +98,6 @@ impl<T: Rng> Paths<T> {
                 .filter_map(|point| distances_to_deposits.get(point))
                 .min()
                 .cloned()
-                .unwrap_or(u32::MAX)
         };
 
         let paths_so_far: HashSet<PathID> = HashSet::default();
@@ -88,12 +108,15 @@ impl<T: Rng> Paths<T> {
         for &ingress in start_points {
             let path = Path::from_starting_points(vec![ingress]);
             let distance = min_distance_to_deposits(&neighbours(ingress.0, ingress.1));
-            queue.push(PathSearchState {
-                distance,
-                path_length: 0,
-                path: Rc::new(path),
-                map_ref: Arc::clone(&map_ref),
-            });
+            if let Some(distance) = distance {
+                queue.push(PathSearchState {
+                    start_distance: distance,
+                    distance,
+                    path_length: 0,
+                    path: Rc::new(path),
+                    map_ref: Arc::clone(&map_ref),
+                });
+            }
         }
 
         Paths {
@@ -123,8 +146,7 @@ impl<T: Rng> Iterator for Paths<T> {
                 .filter_map(|point| distances_to_deposits.get(point))
                 .min()
                 .cloned()
-                .unwrap_or(u32::MAX)
-                .saturating_add(rng.borrow_mut().gen_range(0..=10)) // TODO: use randomness in a smarter way
+                .map(|d| d.saturating_add(rng.borrow_mut().gen_range(0..=10))) // TODO: use randomness in a smarter way
         };
 
         let timer = Instant::now();
@@ -132,6 +154,7 @@ impl<T: Rng> Iterator for Paths<T> {
         let mut i: usize = 0;
         let mut min_distance: Option<(u32, usize)> = None;
         while let Some(PathSearchState {
+            start_distance,
             distance: path_distance,
             path_length,
             path,
@@ -153,8 +176,12 @@ impl<T: Rng> Iterator for Paths<T> {
                 }
             };
 
-            // TODO: smarter way to kick paths, that can not reach target
-            if path_distance > 200 {
+            // TODO: investigate if dynamic path_{distance,length} bounds help early pruning
+            let MAX_PATH_DISTANCE = 2 * start_distance;
+            let MAX_PATH_LENGTH = ((start_distance / 3) + 100).max(500);
+
+            // // TODO: smarter way to kick paths, that can not reach target
+            if path_distance > MAX_PATH_DISTANCE || path_length > MAX_PATH_LENGTH {
                 continue;
             }
 
@@ -172,7 +199,6 @@ impl<T: Rng> Iterator for Paths<T> {
                     .collect::<Vec<Point>>();
 
                 for (nx, ny) in free_neighbours {
-                    // TODO: measure if early checking if object can be inserted increases performance
                     for mine_subtype in 0..=3 {
                         let mine = Object::mine_with_subtype_and_exgress_at(mine_subtype, (nx, ny));
                         let mine_ingress = mine.ingress().unwrap();
@@ -201,16 +227,18 @@ impl<T: Rng> Iterator for Paths<T> {
 
                         if map_ref.can_insert_object(&conveyor).is_ok() {
                             let new_path = Path::append(conveyor.clone(), &path);
-                            let distance = min_distance_to_deposits(&[ingress]);
-                            let mut new_map_ref = Map::from_map(&map_ref);
-                            new_map_ref.insert_object_unchecked(conveyor);
+                            if let Some(distance) = min_distance_to_deposits(&[ingress]) {
+                                let mut new_map_ref = Map::from_map(&map_ref);
+                                new_map_ref.insert_object_unchecked(conveyor);
 
-                            queue.push(PathSearchState {
-                                distance,
-                                path_length,
-                                path: Rc::new(new_path),
-                                map_ref: Arc::new(new_map_ref),
-                            })
+                                queue.push(PathSearchState {
+                                    start_distance,
+                                    distance,
+                                    path_length,
+                                    path: Rc::new(new_path),
+                                    map_ref: Arc::new(new_map_ref),
+                                })
+                            }
                         }
                     }
 
@@ -223,16 +251,18 @@ impl<T: Rng> Iterator for Paths<T> {
 
                         if map_ref.can_insert_object(&combiner).is_ok() {
                             let new_path = Path::append(combiner.clone(), &path);
-                            let distance = min_distance_to_deposits(&ingresses);
-                            let mut new_map_ref = Map::from_map(&map_ref);
-                            new_map_ref.insert_object_unchecked(combiner);
+                            if let Some(distance) = min_distance_to_deposits(&ingresses) {
+                                let mut new_map_ref = Map::from_map(&map_ref);
+                                new_map_ref.insert_object_unchecked(combiner);
 
-                            queue.push(PathSearchState {
-                                distance,
-                                path_length,
-                                path: Rc::new(new_path),
-                                map_ref: Arc::new(new_map_ref),
-                            })
+                                queue.push(PathSearchState {
+                                    start_distance,
+                                    distance,
+                                    path_length,
+                                    path: Rc::new(new_path),
+                                    map_ref: Arc::new(new_map_ref),
+                                });
+                            }
                         }
                     }
                 }

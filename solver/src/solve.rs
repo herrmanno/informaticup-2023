@@ -311,7 +311,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                                     *paths = Some(Paths::new(
                                         &start_points,
                                         &deposits_by_type[&resource],
-                                        &map, //FIXME: pre-built deposit_distance map once and pass it here because 'map' does not change during loop
+                                        &map,
                                         Rc::clone(&self.rng),
                                     ));
                                 }
@@ -430,7 +430,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                 for path in Paths::new(
                     &start_points,
                     &deposits_by_type[&resource_index],
-                    &map, //FIXME: prebuilt 'deposit_distance_map' here and pass it to Paths
+                    &map,
                     Rc::clone(&self.rng),
                 )
                 .take(NUM_ADDITION_PATHS_PER_FACTORY_AND_RESOURCE as usize)
@@ -449,7 +449,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
 
                 // Reduce weight of current factory,resource tuple
                 let new_weight = &mut factory_resource_weights_raw[factory_resource_pair_index];
-                *new_weight /= 2; //TODO: try to use some kind of exponential backoff
+                *new_weight /= 2;
                 let _ = factory_resource_weights
                     .update_weights(&[(factory_resource_pair_index, new_weight)]);
 
