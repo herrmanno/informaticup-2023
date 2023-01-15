@@ -15,6 +15,11 @@ use model::{
     object::Object,
 };
 
+/// Maximum number of cache entries (50_000 entries ~ 10Mb)
+///
+/// If maximum is reached, every second entry will be evicted.
+const NUM_MAX_CACHE_ENTRIES: usize = 50_000;
+
 /// Map from (hash(map), hash(deposits)) => distance map
 type DistanceCache = HashMap<(u64, u64), Arc<HashMap<Point, u32>>>;
 
@@ -38,6 +43,19 @@ pub(crate) fn get_distances(map: &Map, deposits: &[Object]) -> Arc<HashMap<Point
     };
 
     let mut cache = DISTANCES_CACHE.lock().unwrap();
+
+    if cache.len() > NUM_MAX_CACHE_ENTRIES {
+        let mut keys_to_remove: Vec<(u64, u64)> = Vec::with_capacity(NUM_MAX_CACHE_ENTRIES / 2 + 2);
+        for (idx, (k, _)) in cache.iter().enumerate() {
+            if idx % 2 == 0 {
+                keys_to_remove.push(*k);
+            }
+        }
+        for key in keys_to_remove.into_iter() {
+            cache.remove(&key);
+        }
+    }
+
     let distances = cache
         .entry((map_hash, deposits_hash))
         .or_insert_with(|| Arc::new(create_distances(map, deposits)));
