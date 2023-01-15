@@ -102,7 +102,7 @@ impl Map {
         x >= 0
             && y >= 0
             && x < self.width as Coord
-            && y < self.width as Coord
+            && y < self.height as Coord
             && self.get_cell(x, y).is_none()
     }
 
