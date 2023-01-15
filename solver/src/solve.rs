@@ -24,23 +24,19 @@ use simulator::{simulate, SimulatorResult};
 
 /// Number of times a factory location is tried.
 /// If no location can be found a whole new iteration starts
-const NUM_MAX_FACTORY_PLACEMENTS: u32 = 100;
+const NUM_MAX_FACTORY_PLACEMENTS: u32 = 20;
 
 /// Chance that a single factory will be skipped during placement
 const PROBABILITY_FACTORY_SKIP: (u32, u32) = (1, 10);
 
 /// Number of paths to try (calculate) per factory and resource type
-const NUM_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 15;
+const NUM_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 5;
 
 /// Number of additional paths to try (calculate) per factory and resource type
-const NUM_ADDITION_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 10;
+const NUM_ADDITION_PATHS_PER_FACTORY_AND_RESOURCE: u32 = 5;
 
 /// Number of path combinations to try during one iteration
-const NUM_PATH_COMBINING_ITERATIONS: u32 = 10;
-
-/// Max number of BFS states to process when finding a path
-#[allow(dead_code)] //TODO: remove
-const NUM_MAX_PATH_FINDING_STEPS: u32 = 100_000;
+const NUM_PATH_COMBINING_ITERATIONS: u32 = 2;
 
 /// An iterative best-search solver
 #[derive(Clone)]
@@ -340,13 +336,11 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                             })
                             .or_default();
 
-                        // FIXME: 'paths_tried' should be remembered for this resource
                         if let Some(available_paths) = available_paths {
-                            for (paths_tried, path) in available_paths.by_ref().enumerate() {
-                                if paths_tried as u32 > NUM_PATHS_PER_FACTORY_AND_RESOURCE {
-                                    break; // go to backtrack
-                                }
-
+                            for path in available_paths
+                                .by_ref()
+                                .take(NUM_PATHS_PER_FACTORY_AND_RESOURCE as usize)
+                            {
                                 if map
                                     .try_insert_objects(path.objects().cloned().collect())
                                     .is_ok()
@@ -356,6 +350,8 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                                     continue 'path_building;
                                 }
                             }
+
+                            break; // go to backtrack
                         }
 
                         // backtrack

@@ -134,12 +134,15 @@ impl<T: Rng> Iterator for Paths<T> {
         } = self;
 
         let min_distance_to_deposits = |points: &[Point]| {
-            points
-                .iter()
-                .filter_map(|point| distances_to_deposits.get(point))
-                .min()
-                .cloned()
-                .map(|d| d.saturating_add(rng.borrow_mut().gen_range(0..=10))) // TODO: use randomness in a smarter way
+            Some(
+                points
+                    .iter()
+                    .filter_map(|point| distances_to_deposits.get(point))
+                    .min()
+                    .cloned()
+                    .map(|d| d.saturating_add(rng.borrow_mut().gen_range(0..=10)))
+                    .unwrap_or(0),
+            )
         };
 
         let timer = Instant::now();
@@ -225,7 +228,7 @@ impl<T: Rng> Iterator for Paths<T> {
                                 queue.push(PathSearchState {
                                     start_distance,
                                     distance,
-                                    path_length,
+                                    path_length: path_length + 1,
                                     path: Rc::new(new_path),
                                     map_ref: Arc::new(new_map_ref),
                                 })
@@ -247,7 +250,7 @@ impl<T: Rng> Iterator for Paths<T> {
                                 queue.push(PathSearchState {
                                     start_distance,
                                     distance,
-                                    path_length,
+                                    path_length: path_length + 1,
                                     path: Rc::new(new_path),
                                     map_ref: Arc::new(new_map_ref),
                                 });
