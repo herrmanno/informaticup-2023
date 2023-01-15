@@ -5,14 +5,22 @@ use model::{map::Map, object::Object, task::Task};
 use simulator::SimulatorResult;
 use solver::run::run_solver;
 
-const SEEDS: [u64; 3] = [32491274, 923410234, 12375320];
-const NUM_THREADS: usize = 2;
-const RUNTIME_IN_SECS: u64 = 10;
-const TASKS: [&str; 4] = [
+const SEEDS: [u64; 10] = [
+    32491274, 923410234, 12375320, 1238493, 593810, 7382934, 3920134, 4742810, 123648, 83047,
+];
+const NUM_THREADS: usize = 8;
+const RUNTIME_IN_SECS: u64 = 2;
+const TASKS: [&str; 7] = [
     concat!(env!("CARGO_MANIFEST_DIR"), "/../inputs/001.task.json"),
     concat!(env!("CARGO_MANIFEST_DIR"), "/../inputs/002.task.json"),
     concat!(env!("CARGO_MANIFEST_DIR"), "/../inputs/003.task.json"),
     concat!(env!("CARGO_MANIFEST_DIR"), "/../inputs/004.task.json"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../inputs/long_path_001.json"),
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../inputs/path_finding_80_80.json"
+    ),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../inputs/xxl_001.json"),
 ];
 
 macro_rules! OUT_DIR_NAME {
@@ -33,7 +41,7 @@ macro_rules! run_task {
 
         let results = SEEDS
             .iter()
-            .map(|seed| {
+            .filter_map(|seed| {
                 run_solver(
                     &task,
                     &map,
@@ -41,28 +49,35 @@ macro_rules! run_task {
                     Duration::from_secs(RUNTIME_IN_SECS),
                     Some(*seed),
                 )
-                .map(|r| TestResult::from(&r.result))
+                .map(|r| r.result)
             })
-            .collect::<Vec<Option<TestResult>>>();
+            .collect::<Vec<SimulatorResult>>();
 
-        if results.iter().any(Option::is_none) {
-            None
-        } else {
-            let score_sum = results
-                .iter()
-                .cloned()
-                .map(|o| o.unwrap().score)
-                .sum::<f32>();
-            let turn_sum = results
-                .iter()
-                .cloned()
-                .map(|o| o.unwrap().turn)
-                .sum::<f32>();
+        let score_best = results.iter().map(|o| o.score).max().unwrap() as f32;
+        let turn_best = results.iter().map(|o| o.turn).max().unwrap() as f32;
 
-            let score = score_sum / SEEDS.len() as f32;
-            let turn = turn_sum / SEEDS.len() as f32;
-            Some(TestResult { score, turn })
-        }
+        let score_worst = results.iter().map(|o| o.score).min().unwrap() as f32;
+        let turn_worst = results.iter().map(|o| o.turn).min().unwrap() as f32;
+
+        let score_sum: u32 = results.iter().map(|o| o.score).sum();
+        let turn_sum: u32 = results.iter().map(|o| o.turn).sum();
+        let score_avg = score_sum as f32 / SEEDS.len() as f32;
+        let turn_avg = turn_sum as f32 / SEEDS.len() as f32;
+
+        Some(TestResultMetric {
+            best: TestResult {
+                score: score_best,
+                turn: turn_best,
+            },
+            worst: TestResult {
+                score: score_worst,
+                turn: turn_worst,
+            },
+            average: TestResult {
+                score: score_avg,
+                turn: turn_avg,
+            },
+        })
     }};
 }
 
@@ -94,6 +109,7 @@ fn main() {
         results: BTreeMap::new(),
         commit,
     };
+
     for task in TASKS {
         let task_name = task.split_terminator('/').last().unwrap();
         let result = run_task!(task);
@@ -102,8 +118,8 @@ fn main() {
 
     let result_str = serde_json::ser::to_string_pretty(&test_results).unwrap();
     std::fs::create_dir_all(out_dir_path).expect("Cannot create out dir");
-    std::fs::write(&out_file_path, &result_str).expect("Cannot write results to file");
-    std::fs::write(&commit_file_path, &result_str).expect("Cannot write results to file");
+    std::fs::write(out_file_path, &result_str).expect("Cannot write results to file");
+    std::fs::write(commit_file_path, &result_str).expect("Cannot write results to file");
 
     if let Some(last_results) = last_result {
         let mut warning = false;
@@ -128,26 +144,43 @@ fn main() {
             if let Some(last_result) = last_results.results.get(&name) {
                 match (last_result, &result) {
                     (Some(a), Some(b)) => {
-                        let score_change = (b.score - a.score) / a.score;
-                        let turn_change = (b.turn - a.turn) / a.turn;
+                        println!("{}", name);
+                        for (metric, a, b) in [
+                            ("best", &a.best, &b.best),
+                            ("worst", &a.worst, &b.worst),
+                            ("average", &a.average, &b.average),
+                        ] {
+                            let score_change = (b.score - a.score) / a.score;
+                            let turn_change = (b.turn - a.turn) / a.turn;
 
-                        println!(
-                            "{}:\n\tScore: {:.2}%\t({:.2} -> {:.2})\n\tTurns: {:.2}%\t({:.2} -> {:.2})",
-                            name,
-                            score_change * 100f32,
-                            a.score,
-                            b.score,
-                            turn_change,
-                            a.turn,
-                            b.turn,
-                        );
+                            println!(
+                                "\t{}:\n\t\tScore: {:.2}%\t({:.2} -> {:.2})\n\t\tTurns: {:.2}%\t({:.2} -> {:.2})",
+                                metric,
+                                score_change * 100f32,
+                                a.score,
+                                b.score,
+                                turn_change,
+                                a.turn,
+                                b.turn,
+                            );
+                        }
                     }
                     (Some(_), None) => {
                         println!("{}: NO RESULTS", name);
                     }
 
                     (None, Some(b)) => {
-                        println!("{}:\n\tScore: {}\n\tTurns: {}", name, b.score, b.turn,);
+                        println!("{}", name);
+                        for (metric, b) in [
+                            ("best", &b.best),
+                            ("worst", &b.worst),
+                            ("average", &b.average),
+                        ] {
+                            println!(
+                                "\t{}:\n\t\tScore: {}\n\t\tTurns: {}",
+                                metric, b.score, b.turn,
+                            );
+                        }
                     }
                     _ => {}
                 }
@@ -162,7 +195,14 @@ struct TestResults {
     seeds: Vec<u64>,
     time_per_task: u64,
     cores: usize,
-    results: BTreeMap<String, Option<TestResult>>,
+    results: BTreeMap<String, Option<TestResultMetric>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct TestResultMetric {
+    best: TestResult,
+    worst: TestResult,
+    average: TestResult,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
