@@ -14,3 +14,37 @@ guard-%:
 		echo "Environment variable $* not set"; \
 		exit 1; \
 	fi
+	
+zip:
+	zip -r off_by_one.zip \
+		common \
+		inputs \
+		model \
+		printer \
+		qa \
+		simulator \
+		solver \
+		.dockerignore \
+		.gitignore \
+		Cargo.lock \
+		Cargo.toml \
+		Dockerfile \
+		makefile \
+		README.md
+
+tar:
+	tar -czf off_by_one.tar.gz \
+		common \
+		inputs \
+		model \
+		printer \
+		qa \
+		simulator \
+		solver \
+		.dockerignore \
+		.gitignore \
+		Cargo.lock \
+		Cargo.toml \
+		Dockerfile \
+		makefile \
+		README.md
