@@ -175,6 +175,14 @@ fn run_solver_multi_threaded(
                         + next_solution_estimate.get() * 5
                         > runtime
                     {
+                        #[cfg(feature = "stats")]
+                        {
+                            num_solutions.fetch_add(
+                                solver.get_num_solutions(),
+                                std::sync::atomic::Ordering::AcqRel,
+                            );
+                        }
+
                         break;
                     }
                 }
