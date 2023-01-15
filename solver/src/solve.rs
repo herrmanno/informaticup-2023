@@ -1,4 +1,10 @@
-use std::{cell::RefCell, collections::VecDeque, ops::DerefMut, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::VecDeque,
+    ops::DerefMut,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use fxhash::FxHashMap as HashMap;
 
@@ -42,6 +48,7 @@ pub struct Solver<'a, T> {
     products: Vec<Product>,
     best_factory_positions_by_factory_subtype: HashMap<Subtype, (WeightedIndex<f32>, Vec<Point>)>,
     rng: Rc<RefCell<T>>,
+    max_iteration_time: Duration,
     #[allow(unused)] //only used if feature 'stats' is active
     num_solutions: usize,
 }
@@ -55,7 +62,12 @@ impl<'a, T> Solver<'a, T> {
 }
 
 impl<'a, T: Rng> Solver<'a, T> {
-    pub fn new(task: &'a Task, map: &'a Map, rng: Rc<RefCell<T>>) -> Solver<'a, T> {
+    pub fn new(
+        task: &'a Task,
+        map: &'a Map,
+        rng: Rc<RefCell<T>>,
+        max_iteration_time: Duration,
+    ) -> Solver<'a, T> {
         let deposits_by_type: HashMap<u8, Vec<Object>> = {
             let mut deposits: HashMap<u8, Vec<Object>> = HashMap::default();
             task.objects
@@ -121,6 +133,7 @@ impl<'a, T: Rng> Solver<'a, T> {
             products,
             best_factory_positions_by_factory_subtype,
             rng,
+            max_iteration_time,
             num_solutions: 0,
         }
     }
@@ -137,8 +150,11 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
             products,
             best_factory_positions_by_factory_subtype,
             ref rng,
+            max_iteration_time,
             ..
         } = self;
+
+        let time_start = Instant::now();
 
         debug!("{}", original_map);
 
@@ -148,6 +164,10 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
 
         #[allow(unused_variables)]
         'iterate: for n_iteration in 1.. {
+            if time_start.elapsed() > *max_iteration_time {
+                return None;
+            }
+
             debug!("Starting iteration #{}", n_iteration);
 
             let mut map = original_map.clone();

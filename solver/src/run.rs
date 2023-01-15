@@ -50,7 +50,7 @@ fn run_solver_single_threaded(
         Some(seed) => StdRng::seed_from_u64(seed),
         _ => StdRng::from_entropy(),
     };
-    let mut solver = Solver::new(task, map, Rc::new(RefCell::new(rng)));
+    let mut solver = Solver::new(task, map, Rc::new(RefCell::new(rng)), runtime);
 
     let mut next_solution_estimate = RollingAverage::new();
     let mut last_solution = Instant::now();
@@ -100,6 +100,7 @@ fn run_solver_multi_threaded(
     #[cfg(feature = "stats")]
     let num_solutions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
+    let max_iteration_time = runtime - time_for_accumulation;
     let (sender, receiver) = mpsc::channel();
     let stop_condition = Arc::new(RwLock::new(false));
 
@@ -120,7 +121,8 @@ fn run_solver_multi_threaded(
                     Some(seed) => StdRng::seed_from_u64(seed.wrapping_add(i_thread as u64)),
                     _ => StdRng::from_entropy(),
                 };
-                let mut solver = Solver::new(task, map, Rc::new(RefCell::new(rng)));
+                let mut solver =
+                    Solver::new(task, map, Rc::new(RefCell::new(rng)), max_iteration_time);
                 for solution in solver.by_ref() {
                     if *(*stop_condition).read().unwrap() {
                         #[cfg(feature = "stats")]
@@ -140,11 +142,16 @@ fn run_solver_multi_threaded(
             });
         }
 
+        debug!("Workers started");
         thread::sleep(runtime - time_start.elapsed() - time_for_accumulation);
+        debug!("Stopping workers");
         *(*stop_condition).write().unwrap() = true;
+        debug!("Workers stopped");
         // drop sender, so receiving results will terminate after last result was read from pipe
         drop(sender);
     });
+
+    debug!("Accumulating results");
 
     let mut result: Option<(SimulatorResult, Map)> = None;
     while let Ok(solution) = receiver.recv() {

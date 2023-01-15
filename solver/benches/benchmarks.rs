@@ -17,7 +17,7 @@ macro_rules! run_task {
             .into_iter()
             .map(|seed| {
                 let rng = Rc::new(RefCell::new(StdRng::seed_from_u64(seed)));
-                Solver::new(&task, &map, rng)
+                Solver::new(&task, &map, rng, Duration::from_secs(1))
             })
             .collect::<Vec<Solver<StdRng>>>();
 
