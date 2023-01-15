@@ -1,6 +1,8 @@
 use core::panic;
 
-use crate::{coord::Point, solution, task};
+use serde::{Deserialize, Serialize};
+
+use crate::coord::Point;
 
 /// Object's x or y
 /// TODO: change to u8 and handle subtractions
@@ -15,14 +17,18 @@ pub type Subtype = u8;
 /// Object type (8 bits) + object subtype (8 bits) + x (8 bits) + y (8 bits) + width (8 bits) + height (8 bits)
 pub type ObjectID = u64;
 
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Object {
+    #[serde(rename = "obstacle")]
     Obstacle {
         x: Coord,
         y: Coord,
         width: Length,
         height: Length,
     },
+    #[serde(rename = "deposit")]
     Deposit {
         x: Coord,
         y: Coord,
@@ -30,21 +36,25 @@ pub enum Object {
         height: Length,
         subtype: Subtype,
     },
+    #[serde(rename = "mine")]
     Mine {
         x: Coord,
         y: Coord,
         subtype: Subtype,
     },
+    #[serde(rename = "factory")]
     Factory {
         x: Coord,
         y: Coord,
         subtype: Subtype,
     },
+    #[serde(rename = "conveyor")]
     Conveyor {
         x: Coord,
         y: Coord,
         subtype: Subtype,
     },
+    #[serde(rename = "combiner")]
     Combiner {
         x: Coord,
         y: Coord,
@@ -336,70 +346,7 @@ impl Object {
             _ => self.exgress().into_iter().collect(),
         }
     }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ObjectType {
-    Obstacle,
-    Deposit,
-    Mine,
-    Factory,
-    Conveyor,
-    Combiner,
-}
-
-impl From<ObjectType> for String {
-    fn from(kind: ObjectType) -> Self {
-        match kind {
-            ObjectType::Obstacle => "obstacle".to_string(),
-            ObjectType::Deposit => "deposit".to_string(),
-            ObjectType::Mine => "mine".to_string(),
-            ObjectType::Factory => "factory".to_string(),
-            ObjectType::Conveyor => "conveyor".to_string(),
-            ObjectType::Combiner => "combiner".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ObjectCell {
-    Exgress {
-        kind: ObjectType,
-        id: ObjectID,
-    },
-    Ingress {
-        kind: ObjectType,
-        id: ObjectID,
-    },
-    Inner {
-        kind: ObjectType,
-        subtype: Option<u8>,
-    },
-}
-
-impl From<&ObjectCell> for char {
-    fn from(cell: &ObjectCell) -> char {
-        match cell {
-            ObjectCell::Exgress { .. } => '-',
-            ObjectCell::Ingress { .. } => '+',
-            ObjectCell::Inner {
-                kind: ObjectType::Obstacle,
-                ..
-            } => 'X',
-            ObjectCell::Inner {
-                kind: ObjectType::Factory,
-                subtype: Some(st),
-            } => char::from_digit(*st as u32, 10).unwrap(),
-            ObjectCell::Inner {
-                kind: ObjectType::Deposit,
-                subtype: Some(st),
-            } => char::from_digit(*st as u32, 10).unwrap(),
-            ObjectCell::Inner { .. } => 'O',
-        }
-    }
-}
-
-impl Object {
     /// Calculates the fields occupied by this object
     pub fn get_cells(&self, _index: usize) -> Vec<(Point, ObjectCell)> {
         use Object::*;
@@ -968,55 +915,63 @@ impl Object {
     }
 }
 
-impl From<task::Object> for Object {
-    fn from(obj: task::Object) -> Self {
-        let task::Object {
-            kind,
-            subtype,
-            x,
-            y,
-            width,
-            height,
-        } = obj;
-        match kind.as_str() {
-            "obstacle" => Object::Obstacle {
-                x,
-                y,
-                width,
-                height,
-            },
-            "deposit" => Object::Deposit {
-                x,
-                y,
-                width,
-                height,
-                subtype: subtype.unwrap(),
-            },
-            _ => panic!(
-                "Cannot convert task object w/ type '{}' into proper object",
-                kind
-            ),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ObjectType {
+    Obstacle,
+    Deposit,
+    Mine,
+    Factory,
+    Conveyor,
+    Combiner,
+}
+
+impl From<ObjectType> for String {
+    fn from(kind: ObjectType) -> Self {
+        match kind {
+            ObjectType::Obstacle => "obstacle".to_string(),
+            ObjectType::Deposit => "deposit".to_string(),
+            ObjectType::Mine => "mine".to_string(),
+            ObjectType::Factory => "factory".to_string(),
+            ObjectType::Conveyor => "conveyor".to_string(),
+            ObjectType::Combiner => "combiner".to_string(),
         }
     }
 }
 
-impl From<solution::Object> for Object {
-    fn from(obj: solution::Object) -> Self {
-        let solution::Object {
-            kind,
-            subtype,
-            x,
-            y,
-        } = obj;
-        match kind.as_str() {
-            "mine" => Object::Mine { x, y, subtype },
-            "conveyor" => Object::Conveyor { x, y, subtype },
-            "combiner" => Object::Combiner { x, y, subtype },
-            "factory" => Object::Factory { x, y, subtype },
-            _ => panic!(
-                "Cannot convert solution object w/ type '{}' into proper object",
-                kind
-            ),
+#[derive(Debug, Clone)]
+pub enum ObjectCell {
+    Exgress {
+        kind: ObjectType,
+        id: ObjectID,
+    },
+    Ingress {
+        kind: ObjectType,
+        id: ObjectID,
+    },
+    Inner {
+        kind: ObjectType,
+        subtype: Option<u8>,
+    },
+}
+
+impl From<&ObjectCell> for char {
+    fn from(cell: &ObjectCell) -> char {
+        match cell {
+            ObjectCell::Exgress { .. } => '-',
+            ObjectCell::Ingress { .. } => '+',
+            ObjectCell::Inner {
+                kind: ObjectType::Obstacle,
+                ..
+            } => 'X',
+            ObjectCell::Inner {
+                kind: ObjectType::Factory,
+                subtype: Some(st),
+            } => char::from_digit(*st as u32, 10).unwrap(),
+            ObjectCell::Inner {
+                kind: ObjectType::Deposit,
+                subtype: Some(st),
+            } => char::from_digit(*st as u32, 10).unwrap(),
+            ObjectCell::Inner { .. } => 'O',
         }
     }
 }

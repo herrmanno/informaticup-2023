@@ -1,9 +1,7 @@
 use clap::Parser;
 use cli::Args;
 use common::{debug, release};
-use model::{
-    cli::CliFile, input::read_input_from_stdin, map::Map, object::Object, solution::Solution,
-};
+use model::{input::read_input_from_stdin, map::Map, object::Object, solution::Solution};
 use std::{
     thread,
     time::{Duration, Instant},
@@ -61,14 +59,16 @@ fn main() {
         }
 
         if cfg!(debug_assertions) || args.output_format() == OutputFormat::Cli {
-            println!(
-                "{}",
-                CliFile::new(task, Solution::from(&result.map))
-                    .to_json_string()
-                    .unwrap()
-            );
+            let mut task = task.clone();
+            task.objects = result.map.get_objects().cloned().collect();
+            println!("{}", task.to_json_string().unwrap());
         } else {
-            println!("{}", Solution::from(&result.map).to_json_string().unwrap());
+            let objects = result
+                .map
+                .get_objects()
+                .filter(|obj| !matches!(obj, Object::Deposit { .. } | Object::Obstacle { .. }))
+                .cloned();
+            println!("{}", Solution::from(objects).to_json_string().unwrap());
         }
     } else {
         debug!("No solution found");

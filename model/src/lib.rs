@@ -1,4 +1,3 @@
-pub mod cli;
 pub mod coord;
 pub mod input;
 pub mod map;

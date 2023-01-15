@@ -20,14 +20,13 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use model::cli::CliFile;
+    use model::input::read_input_from_file;
 
     macro_rules! test_simulation {
         ($path:expr) => {{
             let cli_path = $path;
-            let (task, solution) =
-                CliFile::from_json_file(cli_path).expect("Could not read cli file");
-            let map = generate_map(&task, &solution);
+            let (task, solution) = read_input_from_file(cli_path).expect("Could not read cli file");
+            let map = generate_map(&task, &solution.unwrap());
             simulate(&task, &map, false)
         }};
     }

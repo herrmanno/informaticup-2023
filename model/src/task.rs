@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
 
+use crate::object::Object;
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Task {
     pub width: u8,
@@ -17,17 +19,10 @@ impl Task {
         let s = std::fs::read_to_string(path).unwrap();
         serde_json::from_str(&s)
     }
-}
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct Object {
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub subtype: Option<u8>,
-    pub x: i8,
-    pub y: i8,
-    pub width: u8,
-    pub height: u8,
+    pub fn to_json_string(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
