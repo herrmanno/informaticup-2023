@@ -340,6 +340,11 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                 break 'combining_paths;
             }
 
+            if built_paths_by_factory.is_empty() {
+                debug!("Could not build initial paths");
+                continue 'iterate;
+            }
+
             // Prepare weights for building additional paths
 
             let mut factory_resource_pairs: Vec<(ObjectID, Subtype)> = Vec::new();
