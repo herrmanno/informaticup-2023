@@ -16,7 +16,7 @@ use model::{
     task::{Product, Task},
 };
 
-use crate::{path::Path, paths::Paths};
+use crate::{distances::get_distances, path::Path, paths::Paths};
 use rand::{distributions::WeightedIndex, prelude::Distribution, seq::SliceRandom, Rng};
 use simulator::{simulate, SimulatorResult};
 
@@ -108,7 +108,16 @@ impl<'a, T: Rng> Solver<'a, T> {
 
         let possible_factory_locations = find_possible_factory_positions(map);
 
-        // FIXME: use (try) distance map for choosing best factory positions
+        let distance_type =
+            /* Value estimated by experimentation
+                The 'xxl_001' (100x100 map) task needed at least 5 seconds to produce results using
+                'ShortestPath'. In such cases, 'Manhattan' should be prefered.
+            */
+            if max_iteration_time.as_millis() / (map.width() as u128 * map.height() as u128) > 2 {
+                DistanceType::ShortestPath
+            } else {
+                DistanceType::Manhattan
+            };
         let best_factory_positions_by_factory_subtype: HashMap<
             Subtype,
             (WeightedIndex<f32>, Vec<Point>),
@@ -118,8 +127,12 @@ impl<'a, T: Rng> Solver<'a, T> {
             .map(|product| {
                 let factory_type = product.subtype;
                 let deposits = &deposits_by_product[&factory_type];
-                let (probabilities, best_positions) =
-                    sort_to_best_positions_by_deposits(&possible_factory_locations, deposits);
+                let (probabilities, best_positions) = sort_to_best_positions_by_deposits(
+                    map,
+                    &possible_factory_locations,
+                    deposits,
+                    distance_type,
+                );
                 (factory_type, (probabilities, best_positions))
             })
             .collect();
@@ -545,21 +558,44 @@ fn find_possible_factory_positions(map: &Map) -> Vec<Point> {
     positions
 }
 
+/// Distance calculation type
+#[derive(Copy, Clone)]
+enum DistanceType {
+    /// Use manhattan distance
+    ///
+    /// Ignores buildings already placed on the map but is faster
+    Manhattan,
+    /// Use shortest distance
+    ///
+    /// Takes more time, especially for large maps but may produce better estimates
+    ShortestPath,
+}
+
 fn sort_to_best_positions_by_deposits(
+    map: &Map,
     positions: &[Point],
     deposits: &[Object],
+    distance_type: DistanceType,
 ) -> (WeightedIndex<f32>, Vec<Point>) {
-    let mut positions_with_distances: Vec<(i32, &Point)> = positions
+    let positions_with_distances: Vec<(i32, &Point)> = positions
         .iter()
         .map(|position| {
             // TODO: weight deposit (resource types) by importance for product
             let distances = deposits
                 .iter()
-                .map(|deposit| {
-                    let (x, y) = position;
-                    let (dx, dy) = deposit.coords();
-                    // TODO: use path distance instead of manhattan distance (see task 004)
-                    (x - dx).abs() as i32 + (y - dy).abs() as i32
+                .map(|deposit| match distance_type {
+                    DistanceType::Manhattan => {
+                        let (x, y) = position;
+                        let (dx, dy) = deposit.coords();
+                        (x - dx).abs() as i32 + (y - dy).abs() as i32
+                    }
+                    DistanceType::ShortestPath => {
+                        let distances = get_distances(map, &[deposit.clone()]);
+                        distances
+                            .get(position)
+                            .map(|d| *d as i32)
+                            .unwrap_or(i32::MAX)
+                    }
                 })
                 .collect::<Vec<i32>>();
 
@@ -575,8 +611,6 @@ fn sort_to_best_positions_by_deposits(
             (distance, position)
         })
         .collect();
-
-    positions_with_distances.sort_unstable_by_key(|(distance, _)| *distance);
 
     let probabilites: Vec<f32> = positions_with_distances
         .iter()

@@ -31,7 +31,7 @@ macro_rules! OUT_DIR_NAME {
 
 macro_rules! run_task {
     ($path: expr) => {{
-        let task = Task::from_json_file($path).unwrap();
+        let task = Task::from_json_file($path).expect("Could not read task {$path}");
 
         let map = Map::new(
             task.width,
@@ -53,11 +53,11 @@ macro_rules! run_task {
             })
             .collect::<Vec<SimulatorResult>>();
 
-        let score_best = results.iter().map(|o| o.score).max().unwrap() as f32;
-        let turn_best = results.iter().map(|o| o.turn).max().unwrap() as f32;
+        let score_best = results.iter().map(|o| o.score).max().unwrap_or(0) as f32;
+        let turn_best = results.iter().map(|o| o.turn).max().unwrap_or(u32::MAX) as f32;
 
-        let score_worst = results.iter().map(|o| o.score).min().unwrap() as f32;
-        let turn_worst = results.iter().map(|o| o.turn).min().unwrap() as f32;
+        let score_worst = results.iter().map(|o| o.score).min().unwrap_or(0) as f32;
+        let turn_worst = results.iter().map(|o| o.turn).min().unwrap_or(u32::MAX) as f32;
 
         let score_sum: u32 = results.iter().map(|o| o.score).sum();
         let turn_sum: u32 = results.iter().map(|o| o.turn).sum();
