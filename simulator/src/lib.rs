@@ -12,7 +12,7 @@ use model::{
 };
 
 /// Result of simulating a mpa
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SimulatorResult {
     /// The final score
     pub score: u32,

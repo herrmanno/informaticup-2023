@@ -53,7 +53,9 @@ fn run_solver_single_threaded(
         Some(seed) => StdRng::seed_from_u64(seed),
         _ => StdRng::from_entropy(),
     };
-    let mut solver = Solver::new(task, map, Rc::new(RefCell::new(rng)), runtime);
+    // Max time generating a single solution must take
+    let max_iteration_time = runtime / 2;
+    let mut solver = Solver::new(task, map, Rc::new(RefCell::new(rng)), max_iteration_time);
 
     let mut next_solution_estimate = RollingAverage::new();
     let mut last_solution = Instant::now();
@@ -68,7 +70,7 @@ fn run_solver_single_threaded(
             _ => result,
         };
 
-        if time_start.elapsed() + next_solution_estimate.get() > runtime {
+        if time_start.elapsed() + next_solution_estimate.get() * 5 > runtime {
             break;
         }
     }
@@ -97,19 +99,23 @@ fn run_solver_multi_threaded(
     seed: Option<u64>,
 ) -> Option<RunnerResult> {
     let time_start = Instant::now();
-    // Extra time for accumulating gathered solutions TODO: find best value by empirical measurement
-    let time_for_accumulation = runtime / 6;
+    // Extra time for accumulating gathered solutions
+    //
+    // Estimates have shown that accumulating, and, especially, building and printing the final
+    // result take about 300ms, independent of the problem and solution size.
+    let time_for_accumulation =
+        (runtime / 10).clamp(Duration::from_millis(500), Duration::from_millis(1500));
 
     #[cfg(feature = "stats")]
     let num_solutions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-    let max_iteration_time = runtime - time_for_accumulation;
+    // Max time generating a single solution must take
+    let max_iteration_time = runtime / 2;
     let (sender, receiver) = mpsc::channel();
     let stop_condition = Arc::new(RwLock::new(false));
 
     thread::scope(|scope| {
         let task = &task;
-        // let map = &map;
 
         for i_thread in 0..num_threads {
             let map = map.clone();
@@ -127,7 +133,15 @@ fn run_solver_multi_threaded(
                 };
                 let mut solver =
                     Solver::new(task, &map, Rc::new(RefCell::new(rng)), max_iteration_time);
+                let mut best_solution: Option<(SimulatorResult, Map)> = None;
+
+                let mut next_solution_estimate = RollingAverage::new();
+                let mut last_solution = Instant::now();
                 for solution in solver.by_ref() {
+                    let now = Instant::now();
+                    next_solution_estimate.add(now.duration_since(last_solution));
+                    last_solution = now;
+
                     if *(*stop_condition).read().unwrap() {
                         #[cfg(feature = "stats")]
                         {
@@ -139,9 +153,30 @@ fn run_solver_multi_threaded(
 
                         break;
                     }
-                    sender
-                        .send(solution)
-                        .expect("Could not send solution from worker thread to main thread");
+
+                    best_solution = match best_solution {
+                        None => {
+                            sender.send(solution.clone()).expect(
+                                "Could not send solution from worker thread to main thread",
+                            );
+                            Some(solution)
+                        }
+                        Some((result, _)) if solution.0 > result => {
+                            sender.send(solution.clone()).expect(
+                                "Could not send solution from worker thread to main thread",
+                            );
+                            Some(solution)
+                        }
+                        _ => best_solution,
+                    };
+
+                    if time_start.elapsed()
+                        + time_for_accumulation
+                        + next_solution_estimate.get() * 5
+                        > runtime
+                    {
+                        break;
+                    }
                 }
             });
         }
@@ -158,7 +193,7 @@ fn run_solver_multi_threaded(
     debug!("Accumulating results");
 
     let mut result: Option<(SimulatorResult, Map)> = None;
-    while let Ok(solution) = receiver.recv_timeout(Duration::from_millis(100)) {
+    while let Ok(solution) = receiver.recv() {
         result = match result {
             None => Some(solution),
             Some(result) if solution.0 > result.0 => Some(solution),
@@ -168,8 +203,8 @@ fn run_solver_multi_threaded(
 
     #[cfg(feature = "stats")]
     {
-        let solutions_per_second = 1000
-            * num_solutions.load(std::sync::atomic::Ordering::Acquire) as u128
+        let solutions_per_second = (1000
+            * num_solutions.load(std::sync::atomic::Ordering::Acquire) as u128)
             / time_start.elapsed().as_millis();
         result.map(|(result, map)| RunnerResult {
             result,
