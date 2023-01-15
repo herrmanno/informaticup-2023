@@ -48,6 +48,9 @@ fn run_solver_single_threaded(
     seed: Option<u64>,
 ) -> Option<RunnerResult> {
     let time_start = Instant::now();
+    let time_for_accumulation =
+        (runtime / 10).clamp(Duration::from_millis(500), Duration::from_millis(1500));
+
     let mut result: Option<(SimulatorResult, Map)> = None;
     let rng = match seed {
         Some(seed) => StdRng::seed_from_u64(seed),
@@ -70,7 +73,8 @@ fn run_solver_single_threaded(
             _ => result,
         };
 
-        if time_start.elapsed() + next_solution_estimate.get() * 5 > runtime {
+        if time_start.elapsed() + time_for_accumulation + next_solution_estimate.get() * 5 > runtime
+        {
             break;
         }
     }
