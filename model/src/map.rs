@@ -8,6 +8,12 @@ use crate::{
     task::Task,
 };
 
+/// A container that holds objects and information about which cells being occupied
+/// 
+/// Note that maps can be _layered_, meaning on map can have a reference to another map in the
+/// layer below.  
+/// Objects will only be inserted into the highest layer, while checking is an object can be
+/// inserted uses all layers below.
 #[derive(Debug, Clone)]
 pub struct Map {
     inner: Option<Arc<Map>>,
@@ -18,6 +24,7 @@ pub struct Map {
 }
 
 impl Map {
+    /// Creates a new Map and inserts the given objects
     pub fn new(width: u8, height: u8, objects: Vec<Object>) -> Self {
         debug_assert!(width <= 100);
         debug_assert!(height <= 100);
@@ -39,6 +46,11 @@ impl Map {
         map
     }
 
+    /// Creates a 'layered map' above `map`
+    /// 
+    /// A layered map can be used to add objects to a layer without effecting the lower layers.
+    /// Calculations about if an object can be placed at a given location will lower layers into
+    /// account.
     pub fn from_map(map: &Arc<Map>) -> Self {
         Self {
             inner: Some(Arc::clone(map)),
@@ -49,14 +61,21 @@ impl Map {
         }
     }
 
+    /// Returns an objects of this map
+    /// 
+    /// Panics if the object identified by `id` cannot be found in this map's layer
     pub fn get_object(&self, id: ObjectID) -> &Object {
         &self.objects[&id]
     }
 
+    /// Returns all objects stored in this map's layer
     pub fn get_objects(&self) -> impl Iterator<Item = &Object> {
         self.objects.values()
     }
 
+    /// Returns the cell at `(x,y)`
+    /// 
+    /// This method will hook into lower layers, if no cell can be found at the current layer.
     pub fn get_cell(&self, x: Coord, y: Coord) -> Option<&ObjectCell> {
         self.map.get(&(x, y)).or_else(|| match self.inner {
             Some(ref inner) => inner.get_cell(x, y),
@@ -64,14 +83,21 @@ impl Map {
         })
     }
 
-    pub fn contains_object(&self, object_id: &ObjectID) -> bool {
-        self.objects.contains_key(object_id)
+    /// Checks if this map already contains the object identified by `id`
+    /// 
+    /// This method will hook into lower layers, if no object identified by `id` can be found at
+    /// the current layer.
+    pub fn contains_object(&self, id: &ObjectID) -> bool {
+        self.objects.contains_key(id)
             || match self.inner {
-                Some(ref inner) => inner.contains_object(object_id),
+                Some(ref inner) => inner.contains_object(id),
                 None => false,
             }
     }
 
+    /// Checks if the cell at `(x,y)` is not occupied by any object
+    /// 
+    /// This method will hook into lower layers to check if the cell is occupied.
     pub fn is_empty_at(&self, x: Coord, y: Coord) -> bool {
         x >= 0
             && y >= 0
@@ -80,14 +106,19 @@ impl Map {
             && self.get_cell(x, y).is_none()
     }
 
+    /// The map's width
     pub fn width(&self) -> u8 {
         self.width
     }
 
+    /// The map's height
     pub fn height(&self) -> u8 {
         self.height
     }
 
+    /// Inserts an objects into this map layer
+    /// 
+    /// Return Err(reason), if the object cannot be inserted
     pub fn insert_object(&mut self, object: Object) -> Result<(), String> {
         if self.contains_object(&object.id()) {
             return Ok(());
@@ -105,7 +136,7 @@ impl Map {
         Ok(())
     }
 
-    ///Inserts an object w/o calling [can_insert_object]
+    ///Inserts an object into this map layer w/o calling [can_insert_object]
     ///
     /// Returns `true` if this map did not contain `object` already
     pub fn insert_object_unchecked(&mut self, object: Object) -> bool {
@@ -123,6 +154,7 @@ impl Map {
         true
     }
 
+    /// Inserts multiple object at once or none at all into this map layer
     pub fn try_insert_objects(&mut self, objects: Vec<Object>) -> Result<(), String> {
         let mut inserted = 0;
         for object in objects.iter() {
@@ -142,6 +174,7 @@ impl Map {
         Ok(())
     }
 
+    /// Remove an object from this map lyer
     fn remove_object(&mut self, object: &Object) -> Result<(), String> {
         if self.objects.remove(&object.id()).is_none() {
             return Err(String::from(
@@ -156,32 +189,9 @@ impl Map {
         Ok(())
     }
 
-    fn force_remove_object(&mut self, object: &Object) {
-        if self.objects.remove(&object.id()).is_some() {
-            for (point, _) in object.get_cells() {
-                self.map.remove(&point);
-            }
-        }
-    }
-
-    #[deprecated]
-    fn can_insert_objects(&mut self, objects: Vec<&Object>) -> Result<(), String> {
-        let mut result = Ok(());
-        for object in objects.iter() {
-            if let Err(e) = self.insert_object((*object).clone()) {
-                result = Err(e);
-                break;
-            }
-        }
-
-        for object in objects {
-            self.force_remove_object(object);
-        }
-
-        result
-    }
-
     /// Checks if an object can be inserted onto this map
+    /// 
+    /// This method will hook into lower layers to check if the object can be inserted.
     pub fn can_insert_object(&self, object: &Object) -> Result<(), String> {
         if self.contains_object(&object.id()) {
             return Ok(());

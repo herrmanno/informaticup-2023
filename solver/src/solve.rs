@@ -1,3 +1,5 @@
+//! Overall solver algorithm for the construction site problem
+
 use std::{
     cell::RefCell,
     collections::VecDeque,
@@ -40,6 +42,7 @@ const NUM_PATH_COMBINING_ITERATIONS: u32 = 10;
 #[allow(dead_code)] //TODO: remove
 const NUM_MAX_PATH_FINDING_STEPS: u32 = 100_000;
 
+/// An iterative best-search solver
 #[derive(Clone)]
 pub struct Solver<'a, T> {
     task: &'a Task,
@@ -62,6 +65,7 @@ impl<'a, T> Solver<'a, T> {
 }
 
 impl<'a, T: Rng> Solver<'a, T> {
+    /// Creates a new solver for the given task / map
     pub fn new(
         task: &'a Task,
         map: &'a Map,
@@ -110,9 +114,9 @@ impl<'a, T: Rng> Solver<'a, T> {
 
         let distance_type =
             /* Value estimated by experimentation
-                The 'xxl_001' (100x100 map) task needed at least 5 seconds to produce results using
-                'ShortestPath'. In such cases, 'Manhattan' should be prefered.
-            */
+             * The 'xxl_001' (100x100 map) task needed at least 5 seconds to produce results using
+             * 'ShortestPath'. In such cases, 'Manhattan' should be prefered.
+             */
             if max_iteration_time.as_millis() / (map.width() as u128 * map.height() as u128) > 2 {
                 DistanceType::ShortestPath
             } else {
@@ -171,7 +175,9 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
 
         debug!("{}", original_map);
 
-        // start iterating
+        /*************************************************/
+        /* START ITERATING                               */
+        /*************************************************/
 
         let mut best_solution: Option<(SimulatorResult, Map)> = None;
 
@@ -185,7 +191,9 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
 
             let mut map = original_map.clone();
 
-            // place factories
+            /*************************************************/
+            /* PLACE FACTORIES                               */
+            /*************************************************/
 
             let mut factory_ids = Vec::new();
 
@@ -236,9 +244,9 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
             debug!("Factories placed");
             debug!("{}", map);
 
-            // construct factory -> deposit paths
-
-            // chose path combinations
+            /*************************************************/
+            /* CONSTRUCT INITIAL FACTORY -> DEPOSIT PATHS    */
+            /*************************************************/
 
             // Map from factory subtype => (map of resource type => built path)
             let mut built_paths_by_factory: HashMap<Subtype, HashMap<Subtype, Path>> =
@@ -297,17 +305,17 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                         );
 
                         /* LOGIC
-                        1a. If no path to resource built yet:
-                            - Built and store paths for resource, based on already built paths
-                            - Choose first valid of such paths
-                        1b. Else:
-                            - Choose the next valid path from prebuilt paths
-                        2. Build and store the choosen path
-                        3a. If no path can be choosen:
-                            - push back resource and also push top of 'done' stack
-                        3b. Else:
-                            - pop resource and push it onto 'done' stack
-                        */
+                         *  1a. If no path to resource built yet:
+                         *      - Built and store paths for resource, based on already built paths
+                         *      - Choose first valid of such paths
+                         *  1b. Else:
+                         *      - Choose the next valid path from prebuilt paths
+                         *  2. Build and store the choosen path
+                         *  3a. If no path can be choosen:
+                         *      - push back resource and also push top of 'done' stack
+                         *  3b. Else:
+                         *      - pop resource and push it onto 'done' stack
+                         */
 
                         let available_paths = paths_by_resource
                             .entry(resource)
@@ -377,7 +385,9 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                 continue 'iterate;
             }
 
-            // Prepare weights for building additional paths
+            /*************************************************/
+            /* prepare weights for building additional paths */
+            /*************************************************/
 
             let mut factory_resource_pairs: Vec<(ObjectID, Subtype)> = Vec::new();
             let mut factory_resource_weights_raw: Vec<u32> = Vec::new();
@@ -408,6 +418,10 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                     .expect("Cannot built (factory,resource) weights");
 
             debug!("Building additional paths");
+            
+            /*************************************************/
+            /* BUILD AUXILIARY PATHS                         */
+            /*************************************************/
 
             // TODO: investigate optimal number of failed tries per factory/resource tuple
             let max_additional_path_failures = factory_ids.len() * 10;
@@ -571,6 +585,7 @@ enum DistanceType {
     ShortestPath,
 }
 
+/// Weights all `positions` by their minimal distance to `deposits`
 fn sort_to_best_positions_by_deposits(
     map: &Map,
     positions: &[Point],

@@ -1,3 +1,5 @@
+//! Higher level runner function for a [Solver]
+
 use crate::solve::Solver;
 use common::debug;
 use model::{map::Map, task::Task};
@@ -24,6 +26,7 @@ pub struct RunnerResult {
     pub solutions_per_second: u128,
 }
 
+/// Executes a solver on the given task
 pub fn run_solver(
     task: &Task,
     map: &Map,

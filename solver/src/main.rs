@@ -59,6 +59,10 @@ fn main() {
         }
 
         if cfg!(debug_assertions) || args.output_format() == OutputFormat::Cli {
+            /* allow explicit cloning of task to make clear, that we *do not* change the original
+             * task, but just a copy in order to print the solution
+             */
+            #[allow(clippy::redundant_clone)]
             let mut task = task.clone();
             task.objects = result.map.get_objects().cloned().collect();
             println!("{}", task.to_json_string().unwrap());

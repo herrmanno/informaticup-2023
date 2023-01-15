@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::coord::Point;
 
 /// Object's x or y
-/// TODO: change to u8 and handle subtractions
 pub type Coord = i8;
 
 /// Object's width or height
@@ -14,7 +13,7 @@ pub type Length = u8;
 /// Object's subtype
 pub type Subtype = u8;
 
-/// Object type (8 bits) + object subtype (8 bits) + x (8 bits) + y (8 bits) + width (8 bits) + height (8 bits)
+/// A unique ID that identifies an object
 pub type ObjectID = u64;
 
 #[derive(Serialize, Deserialize)]
@@ -63,6 +62,7 @@ pub enum Object {
 }
 
 impl Object {
+    /// Creates a mine with the given subtype whose egress is at the specified location
     pub fn mine_with_subtype_and_exgress_at(subtype: u8, exgress_position: Point) -> Object {
         let (x, y) = exgress_position;
         match subtype {
@@ -90,6 +90,7 @@ impl Object {
         }
     }
 
+    /// Creates a conveyor with the given subtype whose egress is at the specified location
     pub fn conveyor_with_subtype_and_exgress_at(subtype: u8, exgress_position: Point) -> Object {
         let (x, y) = exgress_position;
         match subtype {
@@ -137,6 +138,7 @@ impl Object {
         }
     }
 
+    /// Creates a combiner with the given subtype whose egress is at the specified location
     pub fn combiner_with_subtype_and_exgress_at(subtype: u8, exgress_position: Point) -> Object {
         let (x, y) = exgress_position;
         match subtype {
@@ -165,6 +167,8 @@ impl Object {
     }
 
     /// Calculate a unique id based on this object's values
+    /// 
+    /// Object type (8 bits) + object subtype (8 bits) + x (8 bits) + y (8 bits) + width (8 bits) + height (8 bits)
     pub fn id(&self) -> ObjectID {
         // TODO: benchmark against pre-calculating and storing id
         let kind = match self {

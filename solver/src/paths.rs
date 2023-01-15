@@ -1,3 +1,5 @@
+//! Path finding algorithm
+
 use std::{
     cell::RefCell,
     collections::BinaryHeap,
@@ -29,6 +31,7 @@ const MAX_SEARCH_TIME_IN_MILLIS: u64 = 200;
 /// will increase overall performance by pruning bad paths early.
 const MAX_STEPS_WITHOUT_IMPROVEMENT: usize = 10;
 
+/// The internal BFS-search state (= type of search queue elements)
 struct PathSearchState {
     start_distance: u32,
     distance: u32,
@@ -60,6 +63,7 @@ impl Ord for PathSearchState {
     }
 }
 
+/// A container for constructing paths between a set of start and target points
 pub struct Paths<T> {
     distances_to_deposits: Arc<HashMap<Point, u32>>,
     paths_so_far: HashSet<PathID>,
@@ -68,6 +72,11 @@ pub struct Paths<T> {
 }
 
 impl<T: Rng> Paths<T> {
+    /// Creates a new Paths container
+    /// 
+    /// # Example
+    /// A container for constructing paths from any point in `starts` to any deposit of `deposits`
+    /// Paths::new(starts, deposits, map, rng)
     pub fn new(
         start_points: &[Point],
         deposits: &[Object],
@@ -170,12 +179,12 @@ impl<T: Rng> Iterator for Paths<T> {
             }
 
             for (x, y) in path.heads() {
-                /*  LOGIC
-                    1. check if target is reached by placing a mine
-                    2. try using long conveyor
-                    3. try using short conveyor
-                    4. try using combiner
-                */
+                /* LOGIC
+                 *  1. check if target is reached by placing a mine
+                 *  2. try using long conveyor
+                 *  3. try using short conveyor
+                 *  4. try using combiner
+                 */
 
                 let free_neighbours = neighbours(x, y)
                     .into_iter()

@@ -1,3 +1,5 @@
+//! Utilities for calculating shortest path between points
+
 use std::{
     collections::VecDeque,
     hash::{Hash, Hasher},
@@ -20,7 +22,7 @@ lazy_static! {
     static ref DISTANCES_CACHE: Mutex<DistanceCache> = Default::default();
 }
 
-/// Create a map of shortest distances to given deposits from all reachable points on map
+/// Create a map of shortest distances to given deposits from all empty points on map
 ///
 /// Returns map as Arc because it may be read from a cache
 pub(crate) fn get_distances(map: &Map, deposits: &[Object]) -> Arc<HashMap<Point, u32>> {

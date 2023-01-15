@@ -1,8 +1,10 @@
+//! Representation of a single path, as constructed by [Paths]
+
 use std::{borrow::Borrow, rc::Rc};
 
 use model::{
     coord::Point,
-    object::{Object, ObjectCell, ObjectType},
+    object::{Object, ObjectType},
 };
 
 pub type PathID = u128;
@@ -76,35 +78,6 @@ impl Path {
         ingresses
     }
 
-    /// Check if new object may be added to path legally
-    fn check_object(&self, object: &Object) -> Result<(), String> {
-        let cells = object.get_cells();
-
-        for obj in self.objects() {
-            for ((x, y), cell) in cells.iter() {
-                for ((dx, dy), dcell) in obj.get_cells() {
-                    if *x == dx && *y == dy {
-                        match (cell, dcell) {
-                            (
-                                ObjectCell::Inner {
-                                    kind: ObjectType::Conveyor,
-                                    ..
-                                },
-                                ObjectCell::Inner {
-                                    kind: ObjectType::Conveyor,
-                                    ..
-                                },
-                            ) => {}
-                            _ => return Err(format!("Cannot place {:?} over {:?}", object, obj)),
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Return an Iterator over this path's objects
     pub fn objects(&self) -> impl Iterator<Item = &Object> {
         PathObjects { path: self }
@@ -153,6 +126,7 @@ impl From<Path> for Vec<Object> {
     }
 }
 
+/// An iterator of objects along a path
 struct PathObjects<'a> {
     path: &'a Path,
 }
