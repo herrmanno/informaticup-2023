@@ -19,7 +19,7 @@ use model::{
 use rand::Rng;
 
 /// Max time to search for the next path
-const MAX_SEARCH_TIME_IN_MILLIS: u64 = 500;
+const MAX_SEARCH_TIME_IN_MILLIS: u64 = 200;
 
 /// Max partial paths to look at without improvement (of distance to target) before search cancellation
 ///
@@ -28,22 +28,6 @@ const MAX_SEARCH_TIME_IN_MILLIS: u64 = 500;
 /// This approach evidently *may* lead to paths being aborted that may reach the target (soon), but
 /// will increase overall performance by pruning bad paths early.
 const MAX_STEPS_WITHOUT_IMPROVEMENT: usize = 10;
-
-/// Max manhattan distance a path's head may have from the target
-///
-/// Used to discard paths that have gone wild and probably don't have a change to reach the target anymoe
-///
-/// This approach evidently *may* lead to paths being aborted that may reach the target (soon), but
-/// will increase overall performance by pruning bad paths early.
-// const MAX_PATH_DISTANCE: u32 = 100;
-
-/// Max length (as number of objects) any path may reach
-///
-/// Used to discard paths that have gone wild and probably don't have a change to reach the target anymoe
-///
-/// This approach evidently *may* lead to paths being aborted that may reach the target (soon), but
-/// will increase overall performance by pruning bad paths early.
-// const MAX_PATH_LENGTH: u32 = 100;
 
 struct PathSearchState {
     start_distance: u32,
@@ -176,12 +160,12 @@ impl<T: Rng> Iterator for Paths<T> {
                 }
             };
 
-            // TODO: investigate if dynamic path_{distance,length} bounds help early pruning
-            let MAX_PATH_DISTANCE = 2 * start_distance;
-            let MAX_PATH_LENGTH = ((start_distance / 3) + 100).max(500);
+            // Max distance a path's head may have to the target
+            let max_path_distance = 2 * start_distance;
+            // Max length a path may have
+            let max_path_length = (start_distance / 3) + 10;
 
-            // // TODO: smarter way to kick paths, that can not reach target
-            if path_distance > MAX_PATH_DISTANCE || path_length > MAX_PATH_LENGTH {
+            if path_distance > max_path_distance || path_length > max_path_length {
                 continue;
             }
 

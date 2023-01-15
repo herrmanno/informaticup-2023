@@ -235,6 +235,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
             'combining_paths: for n_combining_paths in 0..NUM_PATH_COMBINING_ITERATIONS {
                 debug!("Combining paths #{}", n_combining_paths);
 
+                //TODO: don't shuffle randomly but by weight
                 factory_ids.shuffle(rng.borrow_mut().deref_mut());
 
                 for &factory_id in factory_ids.iter() {
