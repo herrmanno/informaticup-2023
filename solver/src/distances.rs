@@ -52,8 +52,8 @@ fn create_distances(map: &Map, deposits: &[Object]) -> HashMap<Point, u32> {
     let mut visited: HashSet<Point> = HashSet::default();
 
     for deposit in deposits {
-        for exgress in deposit.exgresses() {
-            for position in neighbours(exgress.0, exgress.1) {
+        for egress in deposit.egresses() {
+            for position in neighbours(egress.0, egress.1) {
                 if !visited.contains(&position) {
                     visited.insert(position);
                     if map.is_empty_at(position.0, position.1) {

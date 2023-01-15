@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// A container that holds objects and information about which cells being occupied
-/// 
+///
 /// Note that maps can be _layered_, meaning on map can have a reference to another map in the
 /// layer below.  
 /// Objects will only be inserted into the highest layer, while checking is an object can be
@@ -47,7 +47,7 @@ impl Map {
     }
 
     /// Creates a 'layered map' above `map`
-    /// 
+    ///
     /// A layered map can be used to add objects to a layer without effecting the lower layers.
     /// Calculations about if an object can be placed at a given location will lower layers into
     /// account.
@@ -62,7 +62,7 @@ impl Map {
     }
 
     /// Returns an objects of this map
-    /// 
+    ///
     /// Panics if the object identified by `id` cannot be found in this map's layer
     pub fn get_object(&self, id: ObjectID) -> &Object {
         &self.objects[&id]
@@ -74,7 +74,7 @@ impl Map {
     }
 
     /// Returns the cell at `(x,y)`
-    /// 
+    ///
     /// This method will hook into lower layers, if no cell can be found at the current layer.
     pub fn get_cell(&self, x: Coord, y: Coord) -> Option<&ObjectCell> {
         self.map.get(&(x, y)).or_else(|| match self.inner {
@@ -84,7 +84,7 @@ impl Map {
     }
 
     /// Checks if this map already contains the object identified by `id`
-    /// 
+    ///
     /// This method will hook into lower layers, if no object identified by `id` can be found at
     /// the current layer.
     pub fn contains_object(&self, id: &ObjectID) -> bool {
@@ -96,7 +96,7 @@ impl Map {
     }
 
     /// Checks if the cell at `(x,y)` is not occupied by any object
-    /// 
+    ///
     /// This method will hook into lower layers to check if the cell is occupied.
     pub fn is_empty_at(&self, x: Coord, y: Coord) -> bool {
         x >= 0
@@ -117,7 +117,7 @@ impl Map {
     }
 
     /// Inserts an objects into this map layer
-    /// 
+    ///
     /// Return Err(reason), if the object cannot be inserted
     pub fn insert_object(&mut self, object: Object) -> Result<(), String> {
         if self.contains_object(&object.id()) {
@@ -190,7 +190,7 @@ impl Map {
     }
 
     /// Checks if an object can be inserted onto this map
-    /// 
+    ///
     /// This method will hook into lower layers to check if the object can be inserted.
     pub fn can_insert_object(&self, object: &Object) -> Result<(), String> {
         if self.contains_object(&object.id()) {
@@ -235,7 +235,7 @@ impl Map {
                 let neighbour_to_deposit = neighbours(x, y).iter().any(|coord| {
                     matches!(
                         self.get_cell(coord.0, coord.1),
-                        Some(ObjectCell::Exgress {
+                        Some(ObjectCell::Egress {
                             kind: ObjectType::Deposit,
                             ..
                         })
@@ -243,7 +243,7 @@ impl Map {
                 });
                 if neighbour_to_deposit {
                     return Err(format!(
-                        "Cannot place {:?} because its ingress touches a deposit's exgress",
+                        "Cannot place {:?} because its ingress touches a deposit's egress",
                         object,
                     ));
                 }
@@ -255,7 +255,7 @@ impl Map {
             || object.kind() == ObjectType::Combiner
             || object.kind() == ObjectType::Mine
         {
-            if let Some((x, y)) = object.exgress() {
+            if let Some((x, y)) = object.egress() {
                 let num_neighbouring_ingresses = neighbours(x, y)
                     .iter()
                     .filter(|coord| {
@@ -268,25 +268,25 @@ impl Map {
 
                 if num_neighbouring_ingresses >= 2 {
                     return Err(format!(
-                        "Cannot place {:?} because its exgress touches multiple ingress",
+                        "Cannot place {:?} because its egress touches multiple ingress",
                         object,
                     ));
                 }
             }
         }
 
-        // check that the new part does not touch an exgress (w/ its ingress), that is already
+        // check that the new part does not touch an egress (w/ its ingress), that is already
         // connected to another ingress
         for (x, y) in object.ingresses() {
-            let neighbouring_exgresses = neighbours(x, y).into_iter().filter(|coord| {
+            let neighbouring_egresses = neighbours(x, y).into_iter().filter(|coord| {
                 matches!(
                     self.get_cell(coord.0, coord.1),
-                    Some(ObjectCell::Exgress { .. })
+                    Some(ObjectCell::Egress { .. })
                 )
             });
 
-            for exgress in neighbouring_exgresses {
-                let num_neighbouring_ingresses = neighbours(exgress.0, exgress.1)
+            for egress in neighbouring_egresses {
+                let num_neighbouring_ingresses = neighbours(egress.0, egress.1)
                     .iter()
                     .filter(|coord| {
                         matches!(
@@ -298,7 +298,7 @@ impl Map {
 
                 if num_neighbouring_ingresses >= 1 {
                     return Err(format!(
-                        "Cannot place {:?} because its ingress touches an exgress that is already connected to another ingress",
+                        "Cannot place {:?} because its ingress touches an egress that is already connected to another ingress",
                         object,
                     ));
                 }
@@ -659,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn no_pieces_exgress_can_touch_multiple_ingresses() {
+    fn no_pieces_egress_can_touch_multiple_ingresses() {
         let map = Map::new(
             10,
             10,
@@ -703,7 +703,7 @@ mod tests {
     }
 
     #[test]
-    fn no_pieces_ingress_can_touch_already_connected_exgress() {
+    fn no_pieces_ingress_can_touch_already_connected_egress() {
         let map = Map::new(
             10,
             10,

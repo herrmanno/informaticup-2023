@@ -418,7 +418,7 @@ impl<'a, T: Rng> Iterator for Solver<'a, T> {
                     .expect("Cannot built (factory,resource) weights");
 
             debug!("Building additional paths");
-            
+
             /*************************************************/
             /* BUILD AUXILIARY PATHS                         */
             /*************************************************/
@@ -552,7 +552,7 @@ fn find_possible_factory_positions(map: &Map) -> Vec<Point> {
         }
         for dx in min_x..=x + 5 {
             for dy in [min_y, y + 5] {
-                if let Some(ObjectCell::Exgress { .. }) = map.get_cell(dx, dy) {
+                if let Some(ObjectCell::Egress { .. }) = map.get_cell(dx, dy) {
                     continue 'lopp_cells;
                 }
             }
@@ -560,7 +560,7 @@ fn find_possible_factory_positions(map: &Map) -> Vec<Point> {
 
         for dy in min_y..=y + 5 {
             for dx in [min_x, x + 5] {
-                if let Some(ObjectCell::Exgress { .. }) = map.get_cell(dx, dy) {
+                if let Some(ObjectCell::Egress { .. }) = map.get_cell(dx, dy) {
                     continue 'lopp_cells;
                 }
             }

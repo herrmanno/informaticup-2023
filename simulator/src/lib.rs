@@ -106,7 +106,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
 
             for (x, y) in object.ingresses().iter() {
                 for (nx, ny) in neighbours(*x, *y) {
-                    if let Some(ObjectCell::Exgress {
+                    if let Some(ObjectCell::Egress {
                         id: id_outgoing, ..
                     }) = map.get_cell(nx, ny)
                     {
@@ -163,7 +163,7 @@ pub fn simulate(task: &Task, map: &Map, quiet: bool) -> SimulatorResult {
             // Neighbours of a deposit's egresses (that may be ingresses of a mine)
             let mut visited_cells = HashSet::default();
 
-            for (x, y) in deposit.exgresses().iter() {
+            for (x, y) in deposit.egresses().iter() {
                 for (nx, ny) in neighbours(*x, *y) {
                     if visited_cells.contains(&(nx, ny)) {
                         continue;

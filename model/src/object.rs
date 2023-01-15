@@ -63,8 +63,8 @@ pub enum Object {
 
 impl Object {
     /// Creates a mine with the given subtype whose egress is at the specified location
-    pub fn mine_with_subtype_and_exgress_at(subtype: u8, exgress_position: Point) -> Object {
-        let (x, y) = exgress_position;
+    pub fn mine_with_subtype_and_egress_at(subtype: u8, egress_position: Point) -> Object {
+        let (x, y) = egress_position;
         match subtype {
             0 => Object::Mine {
                 x: x - 2,
@@ -91,8 +91,8 @@ impl Object {
     }
 
     /// Creates a conveyor with the given subtype whose egress is at the specified location
-    pub fn conveyor_with_subtype_and_exgress_at(subtype: u8, exgress_position: Point) -> Object {
-        let (x, y) = exgress_position;
+    pub fn conveyor_with_subtype_and_egress_at(subtype: u8, egress_position: Point) -> Object {
+        let (x, y) = egress_position;
         match subtype {
             0 => Object::Conveyor {
                 x: x - 1,
@@ -139,8 +139,8 @@ impl Object {
     }
 
     /// Creates a combiner with the given subtype whose egress is at the specified location
-    pub fn combiner_with_subtype_and_exgress_at(subtype: u8, exgress_position: Point) -> Object {
-        let (x, y) = exgress_position;
+    pub fn combiner_with_subtype_and_egress_at(subtype: u8, egress_position: Point) -> Object {
+        let (x, y) = egress_position;
         match subtype {
             0 => Object::Combiner {
                 x: x - 1,
@@ -167,7 +167,7 @@ impl Object {
     }
 
     /// Calculate a unique id based on this object's values
-    /// 
+    ///
     /// Object type (8 bits) + object subtype (8 bits) + x (8 bits) + y (8 bits) + width (8 bits) + height (8 bits)
     pub fn id(&self) -> ObjectID {
         // TODO: benchmark against pre-calculating and storing id
@@ -303,7 +303,7 @@ impl Object {
     }
 
     //FIXME: rename -> egress
-    pub fn exgress(&self) -> Option<Point> {
+    pub fn egress(&self) -> Option<Point> {
         match self {
             Object::Mine { x, y, subtype: 0 } => Some((x + 2, y + 1)),
             Object::Mine { x, y, subtype: 1 } => Some((*x, y + 2)),
@@ -329,7 +329,7 @@ impl Object {
     }
 
     //FIXME: rename -> egresses
-    pub fn exgresses(&self) -> Vec<Point> {
+    pub fn egresses(&self) -> Vec<Point> {
         match self {
             Object::Deposit {
                 x,
@@ -338,18 +338,18 @@ impl Object {
                 height,
                 ..
             } => {
-                let mut exgresses = Vec::new();
+                let mut egresses = Vec::new();
                 for dx in (*x)..(*x + *width as Coord) {
-                    exgresses.push((dx, *y));
-                    exgresses.push((dx, *y + (*height as Coord - 1)));
+                    egresses.push((dx, *y));
+                    egresses.push((dx, *y + (*height as Coord - 1)));
                 }
                 for dy in (*y + 1)..(*y + *height as Coord) {
-                    exgresses.push((*x, dy));
-                    exgresses.push((*x + (*width as Coord - 1), dy));
+                    egresses.push((*x, dy));
+                    egresses.push((*x + (*width as Coord - 1), dy));
                 }
-                exgresses
+                egresses
             }
-            _ => self.exgress().into_iter().collect(),
+            _ => self.egress().into_iter().collect(),
         }
     }
 
@@ -398,7 +398,7 @@ impl Object {
                         {
                             cells.push((
                                 (px, py),
-                                Exgress {
+                                Egress {
                                     kind: ObjectType::Deposit,
                                     id,
                                 },
@@ -481,7 +481,7 @@ impl Object {
                         ),
                         (
                             (x + 2, y + 1),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Mine,
                                 id,
                             },
@@ -526,7 +526,7 @@ impl Object {
                         ),
                         (
                             (x, y + 2),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Mine,
                                 id,
                             },
@@ -564,7 +564,7 @@ impl Object {
                         ),
                         (
                             (x - 1, y),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Mine,
                                 id,
                             },
@@ -609,7 +609,7 @@ impl Object {
                         ),
                         (
                             (x + 1, y - 1),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Mine,
                                 id,
                             },
@@ -672,7 +672,7 @@ impl Object {
                     ),
                     (
                         (1, 0),
-                        Exgress {
+                        Egress {
                             kind: ObjectType::Combiner,
                             id,
                         },
@@ -711,7 +711,7 @@ impl Object {
                         ),
                         (
                             (x + 1, y),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Conveyor,
                                 id,
                             },
@@ -735,7 +735,7 @@ impl Object {
                         ),
                         (
                             (x, y + 1),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Conveyor,
                                 id,
                             },
@@ -752,7 +752,7 @@ impl Object {
                         ),
                         (
                             (x - 1, y),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Conveyor,
                                 id,
                             },
@@ -776,7 +776,7 @@ impl Object {
                         ),
                         (
                             (x, y - 1),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Conveyor,
                                 id,
                             },
@@ -814,7 +814,7 @@ impl Object {
                         ),
                         (
                             (x + 2, y),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Conveyor,
                                 id,
                             },
@@ -845,7 +845,7 @@ impl Object {
                         ),
                         (
                             (x, y + 2),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Conveyor,
                                 id,
                             },
@@ -869,7 +869,7 @@ impl Object {
                         ),
                         (
                             (x - 1, y),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Conveyor,
                                 id,
                             },
@@ -900,7 +900,7 @@ impl Object {
                         ),
                         (
                             (x, y - 1),
-                            Exgress {
+                            Egress {
                                 kind: ObjectType::Conveyor,
                                 id,
                             },
@@ -946,7 +946,7 @@ impl From<ObjectType> for String {
 
 #[derive(Debug, Clone, Hash)]
 pub enum ObjectCell {
-    Exgress {
+    Egress {
         kind: ObjectType,
         id: ObjectID,
     },
@@ -963,7 +963,7 @@ pub enum ObjectCell {
 impl From<&ObjectCell> for char {
     fn from(cell: &ObjectCell) -> char {
         match cell {
-            ObjectCell::Exgress { .. } => '-',
+            ObjectCell::Egress { .. } => '-',
             ObjectCell::Ingress { .. } => '+',
             ObjectCell::Inner {
                 kind: ObjectType::Obstacle,
@@ -1000,16 +1000,13 @@ mod test {
         let cells: HashMap<Point, ObjectCell> = object.get_cells().into_iter().collect();
 
         for x in 0..=4 {
-            assert!(matches!(cells[&(x, 0)], ObjectCell::Exgress { .. }));
-            assert!(matches!(
-                cells[&(x, height - 1)],
-                ObjectCell::Exgress { .. }
-            ));
+            assert!(matches!(cells[&(x, 0)], ObjectCell::Egress { .. }));
+            assert!(matches!(cells[&(x, height - 1)], ObjectCell::Egress { .. }));
         }
 
         for y in 0..=4 {
-            assert!(matches!(cells[&(0, y)], ObjectCell::Exgress { .. }));
-            assert!(matches!(cells[&(width - 1, y)], ObjectCell::Exgress { .. }));
+            assert!(matches!(cells[&(0, y)], ObjectCell::Egress { .. }));
+            assert!(matches!(cells[&(width - 1, y)], ObjectCell::Egress { .. }));
         }
 
         for x in 1..=width - 2 {

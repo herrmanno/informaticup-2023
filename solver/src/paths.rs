@@ -73,7 +73,7 @@ pub struct Paths<T> {
 
 impl<T: Rng> Paths<T> {
     /// Creates a new Paths container
-    /// 
+    ///
     /// # Example
     /// A container for constructing paths from any point in `starts` to any deposit of `deposits`
     /// Paths::new(starts, deposits, map, rng)
@@ -193,7 +193,7 @@ impl<T: Rng> Iterator for Paths<T> {
 
                 for (nx, ny) in free_neighbours {
                     for mine_subtype in 0..=3 {
-                        let mine = Object::mine_with_subtype_and_exgress_at(mine_subtype, (nx, ny));
+                        let mine = Object::mine_with_subtype_and_egress_at(mine_subtype, (nx, ny));
                         let mine_ingress = mine.ingress().unwrap();
 
                         let mine_reaches_deposit = distances_to_deposits
@@ -212,10 +212,8 @@ impl<T: Rng> Iterator for Paths<T> {
                     }
 
                     for conveyor_subtype in (0..=7).rev() {
-                        let conveyor = Object::conveyor_with_subtype_and_exgress_at(
-                            conveyor_subtype,
-                            (nx, ny),
-                        );
+                        let conveyor =
+                            Object::conveyor_with_subtype_and_egress_at(conveyor_subtype, (nx, ny));
                         let ingress = conveyor.ingress().unwrap();
 
                         if map_ref.can_insert_object(&conveyor).is_ok() {
@@ -236,10 +234,8 @@ impl<T: Rng> Iterator for Paths<T> {
                     }
 
                     for combiner_subtype in 0..=3 {
-                        let combiner = Object::combiner_with_subtype_and_exgress_at(
-                            combiner_subtype,
-                            (nx, ny),
-                        );
+                        let combiner =
+                            Object::combiner_with_subtype_and_egress_at(combiner_subtype, (nx, ny));
                         let ingresses = combiner.ingresses();
 
                         if map_ref.can_insert_object(&combiner).is_ok() {
